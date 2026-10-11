@@ -1,0 +1,83 @@
+\begin{tikzpicture}[
+    font=\scriptsize,
+    >=Stealth,
+    stg/.style={draw, thick, rounded corners=1pt, align=center,
+                minimum width=1.62cm, minimum height=0.72cm},
+    mux/.style={draw, thick, align=center, minimum width=2.7cm,
+                minimum height=2.05cm, fill=green!8, rounded corners=1pt},
+    arr/.style={-{Stealth[length=1.5mm]}, thick},
+    cell/.style={draw, minimum width=0.72cm, minimum height=0.42cm,
+                 inner sep=0pt, align=center, font=\tiny}
+  ]
+  \node[stg, fill=blue!12]   (if)  at (0,0)    {IF};
+  \node[stg, fill=green!12]  (id)  at (1.95,0) {ID};
+  \node[stg, fill=orange!18] (ex)  at (3.90,0) {EX};
+  \node[stg, fill=violet!12] (mem) at (5.85,0) {MEM};
+  \node[stg, fill=gray!15]   (wb)  at (7.80,0) {WB};
+  \draw[arr] (if) -- (id);
+  \draw[arr] (id) -- (ex);
+  \draw[arr] (ex) -- (mem);
+  \draw[arr] (mem) -- (wb);
+
+  \node[mux] (mux) at (1.95,-2.45)
+    {ID 操作数 MUX\\[-1pt]{\tiny 优先级 EX $>$ MEM $>$ WB $>$ RF}};
+
+  \coordinate (exin)  at ([yshift=0.58cm]mux.east);
+  \coordinate (memin) at ([yshift=0.16cm]mux.east);
+  \coordinate (wbin)  at ([yshift=-0.26cm]mux.east);
+
+  \draw[arr, green!50!black] (ex.south)  -- (ex.south  |- exin)  -- (exin);
+  \draw[arr, blue!60!black]  (mem.south) -- (mem.south |- memin) -- (memin);
+  \draw[arr, black!45]       (wb.south)  -- (wb.south  |- wbin)  -- (wbin);
+
+  \node[font=\tiny, text=green!45!black, anchor=west]
+    at ([xshift=0.22cm]wb.south |- exin) {\texttt{es\_alu\_result}};
+  \node[font=\tiny, text=blue!60!black, anchor=west]
+    at ([xshift=0.22cm]wb.south |- memin) {\texttt{ms\_final\_result}};
+  \node[font=\tiny, text=black!50, anchor=west]
+    at ([xshift=0.22cm]wb.south |- wbin) {\texttt{rf\_wdata}};
+
+  \draw[arr, black!55]
+    ([xshift=-1.15cm,yshift=-0.70cm]mux.west) -- ([yshift=-0.70cm]mux.west)
+    node[midway, below, font=\tiny, inner sep=1pt] {\texttt{rf\_rdata}};
+  \draw[arr, green!40!black] (mux.north) -- (id.south);
+
+  \node[draw, rounded corners=1pt, fill=orange!12, align=left, inner sep=3.5pt, font=\tiny, anchor=north west]
+    at ([xshift=0.22cm,yshift=-0.55cm]wb.south |- wbin)
+    {load 在 EX 不走绿路\\停 1 拍后走蓝路};
+
+  \begin{scope}[yshift=-5.15cm]
+    \def\cw{0.80}
+    \node[anchor=west, font=\footnotesize] at (-1.45,0.50) {(a) ALU 相关：旁路，不插气泡};
+    \node[anchor=east] at (-0.12, 0.00) {\texttt{addu}};
+    \node[anchor=east] at (-0.12,-0.58) {\texttt{bne}};
+    \foreach \c/\f/\x in {IF/blue!18/0, ID/green!18/1, EX/orange!25/2, MEM/violet!15/3, WB/gray!20/4} {
+      \node[cell, fill=\f] at (\x*\cw, 0.00) {\c};
+    }
+    \foreach \c/\f/\x in {IF/blue!18/1, ID/green!18/2, EX/orange!25/3, MEM/violet!15/4, WB/gray!20/5} {
+      \node[cell, fill=\f] at (\x*\cw,-0.58) {\c};
+    }
+    \draw[-{Stealth[length=1.2mm]}, green!50!black, thick]
+      (2*\cw, -0.24) -- (2*\cw, -0.34);
+    \node[font=\tiny, text=green!45!black, anchor=north] at (2*\cw, -0.82) {EX$\to$ID};
+
+    \begin{scope}[xshift=6.55cm]
+      \node[anchor=west, font=\footnotesize] at (-1.45,0.50) {(b) load-use：停 1 拍};
+      \node[anchor=east] at (-0.12, 0.00) {\texttt{lw}};
+      \node[anchor=east] at (-0.12,-0.58) {\texttt{xor}};
+      \foreach \c/\f/\x in {IF/blue!18/0, ID/green!18/1, EX/orange!25/2, MEM/violet!15/3, WB/gray!20/4} {
+        \node[cell, fill=\f] at (\x*\cw, 0.00) {\c};
+      }
+      \node[cell, fill=blue!18] at (1*\cw,-0.58) {IF};
+      \node[cell, fill=green!18, draw=orange!70!black, very thick] at (2*\cw,-0.58) {ID};
+      \node[cell, fill=green!18] at (3*\cw,-0.58) {ID};
+      \foreach \c/\f/\x in {EX/orange!25/4, MEM/violet!15/5} {
+        \node[cell, fill=\f] at (\x*\cw,-0.58) {\c};
+      }
+      \node[cell, fill=red!12, densely dashed] at (3*\cw,-1.16) {气泡};
+      \draw[-{Stealth[length=1.2mm]}, blue!60!black, thick]
+        (3*\cw, -0.24) -- (3*\cw, -0.34);
+      \node[font=\tiny, text=blue!60!black, anchor=north] at (3*\cw, -1.40) {MEM$\to$ID};
+    \end{scope}
+  \end{scope}
+\end{tikzpicture}

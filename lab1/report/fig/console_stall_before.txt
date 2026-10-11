@@ -1,0 +1,66 @@
+#-----------------------------------------------------------
+# xsim v2025.1 (64-bit)
+# SW Build 6140274 on Thu May 22 00:12:29 MDT 2025
+# IP Build 6138677 on Thu May 22 03:10:11 MDT 2025
+# SharedData Build 6139179 on Tue May 20 17:58:58 MDT 2025
+# Start of session at: Sun Oct 11 02:42:55 2026
+# Process ID         : 38624
+# Current directory  : d:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/run_vivado/mycpu_prj1/mycpu_prj1.sim/sim_1/behav/xsim
+# Command line       : xsim.exe -log lab4_nostall.log -mode tcl -source {xsim.dir/tb_top_dbg/xsim_script.tcl}
+# Log file           : d:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/run_vivado/mycpu_prj1/mycpu_prj1.sim/sim_1/behav/xsim/lab4_nostall.log
+# Journal file       : d:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/run_vivado/mycpu_prj1/mycpu_prj1.sim/sim_1/behav/xsim\xsim.jou
+# Running On         : DESKTOP-JH0OJSQ
+# Platform           : Windows Server 2016 or Windows 10
+# Operating System   : 26200
+# Processor Detail   : AMD Ryzen 7 4800HS with Radeon Graphics         
+# CPU Frequency      : 2895 MHz
+# CPU Physical cores : 8
+# CPU Logical cores  : 16
+# Host memory        : 16556 MB
+# Swap memory        : 14928 MB
+# Total Virtual      : 31484 MB
+# Available Virtual  : 6058 MB
+#-----------------------------------------------------------
+source xsim.dir/tb_top_dbg/xsim_script.tcl
+# xsim {tb_top_dbg} -autoloadwcfg -tclbatch {run_until_err.tcl}
+Time resolution is 1 ps
+source run_until_err.tcl
+## open_vcd {d:/Architecture/lab1/report/fig/bug_next.vcd}
+## log_vcd [get_objects /tb_top/resetn]
+## log_vcd [get_objects /tb_top/debug_wb_pc]
+## log_vcd [get_objects /tb_top/debug_wb_rf_wen]
+## log_vcd [get_objects /tb_top/debug_wb_rf_wnum]
+## log_vcd [get_objects /tb_top/debug_wb_rf_wdata]
+## log_vcd [get_objects /tb_top/debug_wb_err]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/ds_valid]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/ds_ready_go]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/ds_pc]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/ds_inst]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rs]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rt]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rs_value]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rt_value]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rf_we]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/id_stage/rf_waddr]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/exe_stage/es_valid]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/exe_stage/es_gr_we]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/exe_stage/es_dest]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/mem_stage/ms_valid]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/mem_stage/ms_gr_we]
+## log_vcd [get_objects /tb_top/soc_lite/cpu/mem_stage/ms_dest]
+## run -all
+ Block Memory Generator module loading initial data...
+ Block Memory Generator data initialization complete.
+Block Memory Generator module tb_top.soc_lite.inst_ram.inst.native_mem_module.blk_mem_gen_v8_4_11_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+Block Memory Generator module tb_top.soc_lite.data_ram.inst.native_mem_module.blk_mem_gen_v8_4_11_inst is using a behavioral model for simulation which will not precisely model memory collision behavior.
+==============================================================
+Test begin!
+--------------------------------------------------------------
+[   2537 ns] Error!!!
+    reference: PC = 0xbfc408b0, wb_rf_wnum = 0x10, wb_rf_wdata = 0x00000001
+    mycpu    : PC = 0xbfc408b0, wb_rf_wnum = 0x10, wb_rf_wdata = 0xxxxxxxxx
+--------------------------------------------------------------
+$finish called at time : 2577 ns : File "d:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/testbench/mycpu_tb.v" Line 166
+## close_vcd
+## quit
+INFO: [Common 17-206] Exiting xsim at Sun Oct 11 02:42:58 2026...

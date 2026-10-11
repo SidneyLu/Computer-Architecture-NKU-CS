@@ -1,0 +1,87 @@
+# NKU Computer Architecture — ignore generated junk for lab1+ (Vivado / XeLaTeX / Python).
+# Keep RTL (.v/.h), Vivado sources (.xpr/.xci/.coe/.mif), reports (.tex/.pdf, fig/*.png),
+# golden_trace.txt, prompt.md, TODO.md.
+
+# Existing: local/course materials not for git
+resource/
+
+# --- OS ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Editor ---
+.idea/
+.vscode/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+venv/
+
+# --- LaTeX (XeLaTeX / latexmk). Keep report.tex, report.pdf, fig/*.png ---
+*.aux
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.xdv
+# XeLaTeX transcript next to the report, not a blanket *.log
+**/report/**/*.log
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Vivado / Xilinx (any labN/.../*.xpr tree) ---
+# Journals (including xsim_*.backup.jou)
+*.jou
+# Project-dir logs (do not use a global *.log — that would hit report/fig notes)
+vivado.log
+vivado_*.log
+webtalk*.log
+xvlog.log
+xelab.log
+xvhdl.log
+elaborate.log
+elaborate_dbg.log
+compile.log
+simulate.log
+*.str
+*.tmp
+.Xil/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.runs/
+*.gen/
+webtalk*/
+usage_statistics_webtalk.*
+hs_err_pid*
+hs_err*
+.crashReporter/
+*.xpr.bak
+*.backup
+*.backup.*
+
+# --- Sim dumps (xsim / waveforms). Keep *.wcfg; ignore lock files ---
+xsim.dir/
+*.wdb
+*.wcfg.lock
+xvlog.pb
+xelab.pb
+xvhdl.pb
+*.vcd
+*.saif
+dfx_runtime.txt
+
+# golden_trace.txt is required for myCPU vs reference compare — do not ignore it.
+# Only drop obvious local copies/backups.
+golden_trace.txt.bak
+golden_trace.txt.old
+*.bak

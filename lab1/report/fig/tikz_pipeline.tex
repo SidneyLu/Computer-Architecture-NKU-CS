@@ -1,0 +1,48 @@
+\begin{tikzpicture}[
+    font=\footnotesize,
+    >=Stealth,
+    stg/.style={
+      draw, thick, rounded corners=1.2pt, align=center,
+      minimum width=2.22cm, minimum height=1.48cm, inner sep=1.5pt},
+    mem/.style={
+      draw, rounded corners=1pt, align=center,
+      minimum width=2.22cm, minimum height=0.58cm,
+      fill=black!4, font=\scriptsize},
+    arr/.style={-{Stealth[length=1.6mm]}, thick}
+  ]
+  \node[stg, fill=blue!12]   (if)  at (0,0)
+    {\textbf{IF}\\[-1pt]取指\\[-1pt]{\scriptsize\texttt{PC / nextpc}}};
+  \node[stg, fill=green!12]  (id)  at (2.95,0)
+    {\textbf{ID}\\[-1pt]译码 / 读寄存器\\[-1pt]{\scriptsize 相关检测}};
+  \node[stg, fill=orange!18] (ex)  at (5.90,0)
+    {\textbf{EX}\\[-1pt]ALU\\[-1pt]{\scriptsize 访存地址}};
+  \node[stg, fill=violet!12] (mem) at (8.85,0)
+    {\textbf{MEM}\\[-1pt]选结果\\[-1pt]{\scriptsize ALU / load}};
+  \node[stg, fill=gray!15]   (wb)  at (11.80,0)
+    {\textbf{WB}\\[-1pt]写寄存器\\[-1pt]{\scriptsize\texttt{ws\_to\_rf}}};
+
+  \node[mem] (iram) at (0,1.72) {\texttt{inst\_sram}};
+  \node[mem, minimum width=5.1cm] (dram) at (7.375,1.72) {\texttt{data\_sram}};
+  \node[mem, minimum width=2.6cm] (rf) at (2.95,-1.78)
+    {\texttt{regfile}\\[-1pt]{\scriptsize ID 读，WB 沿写入}};
+
+  \draw[arr] ([xshift=-0.35cm]iram.south) -- ([xshift=-0.35cm]if.north)
+    node[pos=0.5, left, font=\tiny, inner sep=1pt] {\texttt{rdata}};
+  \draw[arr] (dram.south -| ex) -- (ex.north)
+    node[pos=0.55, left, font=\tiny, inner sep=1pt] {地址};
+  \draw[arr] (dram.south -| mem) -- (mem.north)
+    node[pos=0.55, right, font=\tiny, inner sep=1pt] {\texttt{rdata}};
+
+  \draw[arr] (if) -- node[above, font=\tiny] {\texttt{fs\_to\_ds}} (id);
+  \draw[arr] (id) -- node[above, font=\tiny] {\texttt{ds\_to\_es}} (ex);
+  \draw[arr] (ex) -- node[above, font=\tiny] {\texttt{es\_to\_ms}} (mem);
+  \draw[arr] (mem) -- node[above, font=\tiny] {\texttt{ms\_to\_ws}} (wb);
+
+  \draw[arr, blue!55!black] (id) -- (rf);
+  \draw[arr, blue!55!black] (wb.south) -- ++(0,-0.95) -| (rf.east);
+
+  \draw[arr, red!70!black]
+    ([xshift=0.25cm]id.north) -- ++(0,2.12)
+    -- node[above, font=\tiny, text=red!70!black] {\texttt{br\_bus}}
+    (-1.55,2.12) -- (-1.55,0) -- (if.west);
+\end{tikzpicture}

@@ -1,0 +1,126 @@
+\subsection{实践任务一：参考设计调试}
+仿真时长设为 10\,ms。时钟周期是 10\,ns，把 \texttt{clk} 画进全长图只会变成一条色带，所以图里只保留复位和写回比较用到的信号。修复前这些信号整段不变，每 5\,\textmu s 取一个点就够覆盖全貌；图宽 7.2\,inch、200\,dpi，大约一个像素对应 7\,\textmu s。后面每一处错误都只发生在报错前后的几拍，仍用同一组信号，但把时间轴缩到该次 \texttt{\$finish} 附近。
+
+\subsubsection{BUG 1：译码级有效位没有赋值}
+10\,ms 内 \texttt{debug\_wb\_pc}、写使能、写寄存器号和写数据始终是 X，\texttt{ds\_valid} 也是 X。\texttt{debug\_wb\_err} 一直为 0，因为 testbench 只在真正写非 0 寄存器时才和 \texttt{golden\_trace.txt} 比较。控制台从 22\,\textmu s 到 9.992\,ms 每 10\,\textmu s 重复同一行：
+\begin{verbatim}
+Test begin!
+[  22000 ns] Test is running, debug_wb_pc = 0xxxxxxxxx
+[9992000 ns] Test is running, debug_wb_pc = 0xxxxxxxxx
+\end{verbatim}
+\texttt{ds\_valid} 只有声明。它为 X 时 \texttt{ds\_allowin} 也为 X，取到的指令进不了译码级，写回级的 PC 寄存器始终没有被写入。按执行级、访存级同样的握手补上复位和更新：
+\begin{verbatim}
+if (reset)              ds_valid <= 1'b0;
+else if (ds_allowin)    ds_valid <= fs_to_ds_valid;
+\end{verbatim}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/bug1_10ms.png}
+  \caption{修复前的 0--10\,ms。复位在 2\,\textmu s 结束，在这个尺度上只是左端一根线。}
+\end{figure}
+
+\subsubsection{BUG 2：\texttt{load\_op} 悬空}
+补上 \texttt{ds\_valid} 后，第一条写回的 PC 和寄存器号已经正确，数据仍是 X。第一条指令是 \texttt{addiu \$8,\$0,-1}，参考数据为 \texttt{ffffffff}。
+\begin{verbatim}
+[2067 ns] Error!!!
+reference: PC = 0xbfc00000, wb_rf_wnum = 0x08, wb_rf_wdata = 0xffffffff
+mycpu    : PC = 0xbfc00000, wb_rf_wnum = 0x08, wb_rf_wdata = 0xxxxxxxxX
+\end{verbatim}
+总线上的 \texttt{load\_op} 从未赋值，执行级把它当作 \texttt{res\_from\_mem}。选择信号为 X 时，访存结果和 ALU 结果的二选一也是 X，算术指令同样写回 X。
+\begin{verbatim}
+assign load_op = inst_lw;
+\end{verbatim}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/bug2_wdata_x.png}
+  \caption{2.065\,\textmu s 第一次写回：PC 与寄存器号正确，数据为 X，随后 \texttt{debug\_wb\_err} 拉高。}
+\end{figure}
+
+\subsubsection{BUG 3：ALU 的两个操作数都接到了 src2}
+\texttt{load\_op} 接上之后，同一条 \texttt{addiu} 写出 \texttt{fffffffe}，而不是 \texttt{ffffffff}。立即数 \texttt{-1} 被加了两次。
+\begin{verbatim}
+[2067 ns] Error!!!
+reference: PC = 0xbfc00000, wb_rf_wnum = 0x08, wb_rf_wdata = 0xffffffff
+mycpu    : PC = 0xbfc00000, wb_rf_wnum = 0x08, wb_rf_wdata = 0xfffffffe
+\end{verbatim}
+\texttt{alu} 例化时 \texttt{alu\_src1} 和 \texttt{alu\_src2} 都接了 \texttt{es\_alu\_src2}。改为 \texttt{es\_alu\_src1}。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/bug3_addiu.png}
+  \caption{复位后第一拍写回 \texttt{\$8}，数据为 \texttt{fffffffe}。}
+\end{figure}
+
+\subsubsection{BUG 4：分支总线少 1 位}
+ALU 端口改对后，前两条 \texttt{addiu} 与参考轨迹一致，紧接着的 \texttt{beq \$0,\$0} 没有跳走。参考写回落在 \texttt{bfc0038c}，本设计继续顺序执行到 \texttt{bfc00010}。
+\begin{verbatim}
+[2107 ns] Error!!!
+reference: PC = 0xbfc0038c, wb_rf_wnum = 0x04, wb_rf_wdata = 0xbfb00000
+mycpu    : PC = 0xbfc00010, wb_rf_wnum = 0x08, wb_rf_wdata = 0x80000000
+\end{verbatim}
+\texttt{br\_bus} 是 \{\texttt{br\_taken}, \texttt{br\_target}\}，共 33 位，而 \texttt{BR\_BUS\_WD} 定义为 32，\texttt{br\_taken} 被截掉。改为 33 之后这条 \texttt{beq} 能跳到 \texttt{bfc0038c}。本测试程序里跳转基址用 IF 级的 \texttt{fs\_pc}，在顺序取指时它正好是延迟槽的 PC，与参考轨迹一致，因此没有改目标地址的计算公式。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/bug4_branch.png}
+  \caption{第一条 \texttt{addiu} 已写成 \texttt{ffffffff}，随后 PC 仍沿 \texttt{bfc00010} 顺序前进。}
+\end{figure}
+
+\subsubsection{BUG 5：逻辑右移丢掉最高位}
+分支总线加宽后，功能点 01 到 11 通过，12 号 \texttt{srl} 失败。PC 和寄存器号与参考相同，数据只差最高位：\texttt{adff20c0} 变成 \texttt{2dff20c0}。
+\begin{verbatim}
+[888537 ns] Error!!!
+reference: PC = 0xbfc88c90, wb_rf_wnum = 0x02, wb_rf_wdata = 0xadff20c0
+mycpu    : PC = 0xbfc88c90, wb_rf_wnum = 0x02, wb_rf_wdata = 0x2dff20c0
+\end{verbatim}
+\texttt{sr\_result} 取了 \texttt{sr64\_result[30:0]}，32 位结果的最高位被补成 0。改为 \texttt{[31:0]}。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/bug5_srl.png}
+  \caption{888.54\,\textmu s 附近 \texttt{\$2} 写成 \texttt{2dff20c0}，\texttt{debug\_wb\_err} 随之拉高。}
+\end{figure}
+
+\subsubsection{BUG 6：\texttt{or} 结果回或了自身}
+\texttt{alu.v} 中原来写着
+\begin{verbatim}
+assign or_result = alu_src1 | alu_src2 | alu_result;
+\end{verbatim}
+\texttt{alu\_result} 又由 \texttt{or\_result} 组合出来，形成组合环。把这条自反馈去掉之后，08 号 \texttt{or} 功能点通过。把自反馈暂时加回去再仿真，08 号功能点仍然 PASS：xsim 把环收敛到了 \texttt{src1|src2}。轨迹没有单独报这一处，但组合环不能留在电路里，最终版本是
+\begin{verbatim}
+assign or_result = alu_src1 | alu_src2;
+\end{verbatim}
+
+\subsubsection{BUG 7：访存级使用阻塞赋值}
+\texttt{MEM\_stage.v} 在时钟过程里用 \texttt{es\_to\_ms\_bus\_r = es\_to\_ms\_bus}。\texttt{lw}/\texttt{sw} 功能点在本机 xsim 上仍然通过，因为进程调度碰巧让写回采到了正确数据。这和其它级的非阻塞赋值不一致，换仿真器时可能在同一拍读到新值。改为 \texttt{<=}。
+
+\texttt{decoder\_6\_64} 的循环上界原来是 63，\texttt{out[63]} 悬空。\texttt{func\_lab3} 用不到操作码或功能码 63，一并把上界改为 64。
+
+上述修改全部保留后重新仿真，23 个功能点通过，测试在 1.728\,ms 结束，没有再跑满 10\,ms。控制台末尾为：
+\begin{verbatim}
+----[1726905 ns] Number 8'd23 Functional Test Point PASS!!!
+Test end!
+----PASS!!!
+$finish called at time : 1728025 ns
+\end{verbatim}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{fig/pass_10ms.png}
+  \caption{修复后的全程。纵轴是写回 PC 的低 20 位，\texttt{debug\_wb\_err} 保持 0，直到测试结束。}
+\end{figure}
+
+\begin{table}[H]
+  \centering
+  \caption{任务一 bug 记录}
+  \begin{tabular}{clp{7.4cm}}
+    \toprule
+    编号 & 位置 & 现象与改法 \\
+    \midrule
+    1 & \texttt{ID\_stage.v} & \texttt{ds\_valid} 未赋值，10\,ms 内 PC 为 X。补复位和更新。 \\
+    2 & \texttt{ID\_stage.v} & \texttt{load\_op} 悬空，写回数据为 X。接到 \texttt{inst\_lw}。 \\
+    3 & \texttt{EXE\_stage.v} & ALU 两个输入都是 src2，\texttt{addiu} 得到 \texttt{fffffffe}。 \\
+    4 & \texttt{mycpu.h} & \texttt{BR\_BUS\_WD} 为 32，分支不发生。改为 33。 \\
+    5 & \texttt{alu.v} & 右移结果取 \texttt{[30:0]}，最高位丢失。改为 \texttt{[31:0]}。 \\
+    6 & \texttt{alu.v} & \texttt{or} 回或 \texttt{alu\_result}。去掉自反馈。 \\
+    7 & \texttt{MEM\_stage.v} & 总线寄存使用阻塞赋值。改为非阻塞赋值。 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
