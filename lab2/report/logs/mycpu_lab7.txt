@@ -1,0 +1,73 @@
+Test begin!
+----[  14045 ns] Number 8'd01 Functional Test Point PASS!!!
+----[  41495 ns] Number 8'd02 Functional Test Point PASS!!!
+----[  62925 ns] Number 8'd03 Functional Test Point PASS!!!
+----[  90375 ns] Number 8'd04 Functional Test Point PASS!!!
+----[ 117825 ns] Number 8'd05 Functional Test Point PASS!!!
+----[ 145275 ns] Number 8'd06 Functional Test Point PASS!!!
+----[ 172725 ns] Number 8'd07 Functional Test Point PASS!!!
+----[ 200175 ns] Number 8'd08 Functional Test Point PASS!!!
+----[ 227625 ns] Number 8'd09 Functional Test Point PASS!!!
+----[ 255075 ns] Number 8'd10 Functional Test Point PASS!!!
+----[ 276505 ns] Number 8'd11 Functional Test Point PASS!!!
+----[ 297935 ns] Number 8'd12 Functional Test Point PASS!!!
+----[ 319365 ns] Number 8'd13 Functional Test Point PASS!!!
+----[ 330605 ns] Number 8'd14 Functional Test Point PASS!!!
+----[ 342695 ns] Number 8'd15 Functional Test Point PASS!!!
+----[ 407295 ns] Number 8'd16 Functional Test Point PASS!!!
+----[ 475855 ns] Number 8'd17 Functional Test Point PASS!!!
+----[ 532215 ns] Number 8'd18 Functional Test Point PASS!!!
+----[ 580575 ns] Number 8'd19 Functional Test Point PASS!!!
+----[ 582455 ns] Number 8'd20 Functional Test Point PASS!!!
+----[ 584335 ns] Number 8'd21 Functional Test Point PASS!!!
+----[ 585745 ns] Number 8'd22 Functional Test Point PASS!!!
+----[ 587165 ns] Number 8'd23 Functional Test Point PASS!!!
+----[ 610025 ns] Number 8'd24 Functional Test Point PASS!!!
+----[ 631455 ns] Number 8'd25 Functional Test Point PASS!!!
+----[ 653865 ns] Number 8'd26 Functional Test Point PASS!!!
+----[ 675295 ns] Number 8'd27 Functional Test Point PASS!!!
+----[ 696725 ns] Number 8'd28 Functional Test Point PASS!!!
+----[ 718155 ns] Number 8'd29 Functional Test Point PASS!!!
+----[ 739585 ns] Number 8'd30 Functional Test Point PASS!!!
+----[ 761015 ns] Number 8'd31 Functional Test Point PASS!!!
+----[ 788465 ns] Number 8'd32 Functional Test Point PASS!!!
+----[ 815915 ns] Number 8'd33 Functional Test Point PASS!!!
+----[ 843365 ns] Number 8'd34 Functional Test Point PASS!!!
+----[ 905885 ns] Number 8'd35 Functional Test Point PASS!!!
+----[ 993325 ns] Number 8'd36 Functional Test Point PASS!!!
+----[1020055 ns] Number 8'd37 Functional Test Point PASS!!!
+----[1044205 ns] Number 8'd38 Functional Test Point PASS!!!
+----[1053745 ns] Number 8'd39 Functional Test Point PASS!!!
+----[1063265 ns] Number 8'd40 Functional Test Point PASS!!!
+----[1072165 ns] Number 8'd41 Functional Test Point PASS!!!
+----[1077305 ns] Number 8'd42 Functional Test Point PASS!!!
+----[1101865 ns] Number 8'd43 Functional Test Point PASS!!!
+----[1140075 ns] Number 8'd44 Functional Test Point PASS!!!
+----[1178045 ns] Number 8'd45 Functional Test Point PASS!!!
+----[1216255 ns] Number 8'd46 Functional Test Point PASS!!!
+----[1245945 ns] Number 8'd47 Functional Test Point PASS!!!
+----[1290205 ns] Number 8'd48 Functional Test Point PASS!!!
+----[1336495 ns] Number 8'd49 Functional Test Point PASS!!!
+----[1387255 ns] Number 8'd50 Functional Test Point PASS!!!
+----[1388925 ns] Number 8'd51 Functional Test Point PASS!!!
+----[1395085 ns] Number 8'd52 Functional Test Point PASS!!!
+----[1401885 ns] Number 8'd53 Functional Test Point PASS!!!
+----[1408365 ns] Number 8'd54 Functional Test Point PASS!!!
+----[1415165 ns] Number 8'd55 Functional Test Point PASS!!!
+----[1422595 ns] Number 8'd56 Functional Test Point PASS!!!
+----[1429385 ns] Number 8'd57 Functional Test Point PASS!!!
+----[1434365 ns] Number 8'd58 Functional Test Point PASS!!!
+----[1460075 ns] Number 8'd59 Functional Test Point PASS!!!
+----[1487665 ns] Number 8'd60 Functional Test Point PASS!!!
+----[1507925 ns] Number 8'd61 Functional Test Point PASS!!!
+----[1531075 ns] Number 8'd62 Functional Test Point PASS!!!
+----[1544165 ns] Number 8'd63 Functional Test Point PASS!!!
+----[1558035 ns] Number 8'd64 Functional Test Point PASS!!!
+----[1587035 ns] Number 8'd65 Functional Test Point PASS!!!
+----[1614255 ns] Number 8'd66 Functional Test Point PASS!!!
+----[1629675 ns] Number 8'd67 Functional Test Point PASS!!!
+----[1644675 ns] Number 8'd68 Functional Test Point PASS!!!
+==============================================================
+Test end!
+----PASS!!!
+$finish called at time : 1645135 ns : File "D:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/testbench/mycpu_tb.v" Line 267

@@ -24,17 +24,45 @@ module mem_stage(
 wire        ms_ready_go;
 
 reg [`ES_TO_MS_BUS_WD -1:0] es_to_ms_bus_r;
+wire [ 3:0] ms_mem_op;
+wire [31:0] ms_rt_value;
 wire        ms_res_from_mem;
 wire [31:0] ms_alu_result;
 wire [31:0] ms_pc;
-assign {ms_res_from_mem,  //70:70
-        ms_gr_we       ,  //69:69
+assign {ms_mem_op      ,  //106:103
+        ms_rt_value    ,  //102:71
+        ms_res_from_mem,  //70
+        ms_gr_we       ,  //69
         ms_dest        ,  //68:64
         ms_alu_result  ,  //63:32
         ms_pc             //31:0
        } = es_to_ms_bus_r;
 
 wire [31:0] mem_result;
+wire [1:0]  ea;
+wire [31:0] mem_word;
+wire [7:0]  mem_byte;
+wire [15:0] mem_half;
+wire [31:0] load_result;
+assign ea       = ms_alu_result[1:0];
+assign mem_word = data_sram_rdata;
+assign mem_byte = (ea == 2'd0) ? mem_word[7:0] :
+                  (ea == 2'd1) ? mem_word[15:8] :
+                  (ea == 2'd2) ? mem_word[23:16] :
+                                 mem_word[31:24];
+assign mem_half = ea[1] ? mem_word[31:16] : mem_word[15:0];
+assign load_result =
+    (ms_mem_op == `MEM_LB)  ? {{24{mem_byte[7]}}, mem_byte} :
+    (ms_mem_op == `MEM_LBU) ? {24'b0, mem_byte} :
+    (ms_mem_op == `MEM_LH)  ? {{16{mem_half[15]}}, mem_half} :
+    (ms_mem_op == `MEM_LHU) ? {16'b0, mem_half} :
+    (ms_mem_op == `MEM_LWL && ea == 2'd0) ? {mem_word[7:0],   ms_rt_value[23:0]} :
+    (ms_mem_op == `MEM_LWL && ea == 2'd1) ? {mem_word[15:0],  ms_rt_value[15:0]} :
+    (ms_mem_op == `MEM_LWL && ea == 2'd2) ? {mem_word[23:0],  ms_rt_value[7:0]} :
+    (ms_mem_op == `MEM_LWR && ea == 2'd1) ? {ms_rt_value[31:24], mem_word[31:8]} :
+    (ms_mem_op == `MEM_LWR && ea == 2'd2) ? {ms_rt_value[31:16], mem_word[31:16]} :
+    (ms_mem_op == `MEM_LWR && ea == 2'd3) ? {ms_rt_value[31:8],  mem_word[31:24]} :
+                                            mem_word;
 
 assign ms_to_ws_bus = {ms_gr_we       ,  //69:69
                        ms_dest        ,  //68:64
@@ -58,7 +86,7 @@ always @(posedge clk) begin
     end
 end
 
-assign mem_result = data_sram_rdata;
+assign mem_result = load_result;
 
 assign ms_final_result = ms_res_from_mem ? mem_result
                                          : ms_alu_result;

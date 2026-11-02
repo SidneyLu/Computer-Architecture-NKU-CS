@@ -267,4 +267,71 @@ begin
 	    $finish;
 	end
 end
+
+// Short windows around lab6/lab7 instructions used in the report.
+integer wave_left;
+reg [6:0] wave_seen;
+initial begin
+    wave_left = 0;
+    wave_seen = 7'b0;
+    $dumpfile("D:/Architecture/lab2/report/fig/cases.vcd");
+    $dumpvars(0, soc_lite.cpu.id_stage.ds_pc);
+    $dumpvars(0, soc_lite.cpu.id_stage.ds_ready_go);
+    $dumpvars(0, soc_lite.cpu.id_stage.rs_value);
+    $dumpvars(0, soc_lite.cpu.id_stage.rt_value);
+    $dumpvars(0, soc_lite.cpu.id_stage.br_taken);
+    $dumpvars(0, soc_lite.cpu.exe_stage.es_pc);
+    $dumpvars(0, soc_lite.cpu.exe_stage.es_ready_go);
+    $dumpvars(0, soc_lite.cpu.exe_stage.hi);
+    $dumpvars(0, soc_lite.cpu.exe_stage.lo);
+    $dumpvars(0, soc_lite.cpu.data_sram_wen);
+    $dumpvars(0, soc_lite.cpu.data_sram_addr);
+    $dumpvars(0, soc_lite.cpu.data_sram_wdata);
+    $dumpvars(0, soc_lite.cpu.mem_stage.ms_pc);
+    $dumpvars(0, soc_lite.cpu.mem_stage.ms_final_result);
+    $dumpvars(0, soc_lite.cpu.mem_stage.mem_word);
+    $dumpvars(0, soc_lite.cpu.mem_stage.ms_rt_value);
+    $dumpvars(0, soc_lite.cpu.debug_wb_pc);
+    $dumpvars(0, soc_lite.cpu.debug_wb_rf_wen);
+    $dumpvars(0, soc_lite.cpu.debug_wb_rf_wnum);
+    $dumpvars(0, soc_lite.cpu.debug_wb_rf_wdata);
+    $dumpoff;
+end
+always @(posedge soc_clk) begin
+    if (resetn && wave_left == 0) begin
+        if (!wave_seen[0] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc4ab28) begin
+            wave_seen[0] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE sltiu at %0t", $time);
+        end
+        else if (!wave_seen[1] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc80c58) begin
+            wave_seen[1] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE andi at %0t", $time);
+        end
+        else if (!wave_seen[2] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc85118) begin
+            wave_seen[2] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE mult at %0t", $time);
+        end
+        else if (!wave_seen[3] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc40694) begin
+            wave_seen[3] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE bltzal at %0t", $time);
+        end
+        else if (!wave_seen[4] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc60024) begin
+            wave_seen[4] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE bgez at %0t", $time);
+        end
+        else if (!wave_seen[5] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc9a264) begin
+            wave_seen[5] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE lwr at %0t", $time);
+        end
+        else if (!wave_seen[6] && soc_lite.cpu.id_stage.ds_pc == 32'hbfc8e15c) begin
+            wave_seen[6] = 1'b1; wave_left = 50; $dumpon;
+            $display("WAVE sb at %0t", $time);
+        end
+    end
+    if (wave_left > 0) begin
+        wave_left = wave_left - 1;
+        if (wave_left == 0)
+            $dumpoff;
+    end
+end
 endmodule

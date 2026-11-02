@@ -1,6 +1,7 @@
 # NKU Computer Architecture — ignore generated junk for lab1+ (Vivado / XeLaTeX / Python).
 # Keep RTL (.v/.h), Vivado sources (.xpr/.xci/.coe/.mif), reports (.tex/.pdf, fig/*.png),
-# golden_trace.txt, prompt.md, TODO.md.
+# report/logs, golden_trace.txt, prompt.md, TODO.md.
+# Ignore IP regeneration output, project sim trees, and batch logs.
 
 # Existing: local/course materials not for git
 resource/
@@ -29,6 +30,13 @@ venv/
 *.fls
 *.fdb_latexmk
 *.xdv
+*.bbl
+*.blg
+*.bcf
+*.lof
+*.lot
+*.nav
+*.snm
 # XeLaTeX transcript next to the report, not a blanket *.log
 **/report/**/*.log
 
@@ -51,6 +59,21 @@ elaborate.log
 elaborate_dbg.log
 compile.log
 simulate.log
+ip_upgrade.log
+summary.log
+**/run_vivado/**/*.log
+# Batch transcripts next to a sim/*.tcl directory (lab2/sim, lab1/lab4, later labN).
+**/sim/*.log
+runme.log
+xsimcrash.log
+xsimkernel.log
+xvlog_*.log
+xvhdl_*.log
+# Implementation products, including copies that land outside *.runs/
+*.dcp
+*.bit
+*.ltx
+*.mmi
 *.str
 *.tmp
 .Xil/
@@ -68,6 +91,34 @@ hs_err*
 *.xpr.bak
 *.backup
 *.backup.*
+
+# IP output Vivado writes beside a core. Keep .xci (the core itself), .coe and .mif.
+**/xilinx_ip/**/sim/
+**/xilinx_ip/**/simulation/
+**/xilinx_ip/**/synth/
+**/xilinx_ip/**/hdl/
+**/xilinx_ip/**/misc/
+**/xilinx_ip/**/doc/
+**/xilinx_ip/**/*.v
+**/xilinx_ip/**/*.vh
+**/xilinx_ip/**/*.veo
+**/xilinx_ip/**/*.vho
+**/xilinx_ip/**/*.xml
+**/xilinx_ip/**/*.xdc
+# Project-managed IP directory: generated files go, the .xci stays.
+*.srcs/**
+!*.srcs/**/
+!*.srcs/**/*.xci
+
+# Local trace snapshots. golden_trace.txt itself stays.
+golden_trace_lab*.txt
+
+# Software link products, including lab1/lab4/func_lab4 and soft/func_lab4.
+# Keep obj/*.coe and obj/*.mif (the images Vivado loads).
+**/obj/*.elf
+**/obj/*.bin
+**/obj/*.data
+*.o
 
 # --- Sim dumps (xsim / waveforms). Keep *.wcfg; ignore lock files ---
 xsim.dir/
