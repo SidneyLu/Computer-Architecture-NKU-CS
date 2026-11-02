@@ -7,6 +7,10 @@ module if_stage(
     input                          ds_allowin     ,
     //brbus
     input  [`BR_BUS_WD       -1:0] br_bus         ,
+    input                          ds_is_bj       ,
+    input                          wb_flush       ,
+    input  [31:0]                  wb_flush_pc    ,
+    input                          ex_cancel      ,
     //to ds
     output                         fs_to_ds_valid ,
     output [`FS_TO_DS_BUS_WD -1:0] fs_to_ds_bus   ,
@@ -32,8 +36,7 @@ assign {br_taken,br_target} = br_bus;
 
 wire [31:0] fs_inst;
 reg  [31:0] fs_pc;
-assign fs_to_ds_bus = {fs_inst ,
-                       fs_pc   };
+assign fs_to_ds_bus = {ds_is_bj, fs_inst, fs_pc};
 
 // pre-IF stage
 assign to_fs_valid  = ~reset;
@@ -43,9 +46,15 @@ assign nextpc       = br_taken ? br_target : seq_pc;
 // IF stage
 assign fs_ready_go    = 1'b1;
 assign fs_allowin     = !fs_valid || fs_ready_go && ds_allowin;
-assign fs_to_ds_valid =  fs_valid && fs_ready_go;
+assign fs_to_ds_valid =  fs_valid && fs_ready_go && !wb_flush && !ex_cancel;
 always @(posedge clk) begin
     if (reset) begin
+        fs_valid <= 1'b0;
+    end
+    else if (wb_flush) begin
+        fs_valid <= 1'b1;
+    end
+    else if (ex_cancel) begin
         fs_valid <= 1'b0;
     end
     else if (fs_allowin) begin
@@ -53,16 +62,19 @@ always @(posedge clk) begin
     end
 
     if (reset) begin
-        fs_pc <= 32'hbfbffffc;  //trick: to make nextpc be 0xbfc00000 during reset 
+        fs_pc <= 32'hbfbffffc;  //trick: to make nextpc be 0xbfc00000 during reset
+    end
+    else if (wb_flush) begin
+        fs_pc <= wb_flush_pc;
     end
     else if (to_fs_valid && fs_allowin) begin
         fs_pc <= nextpc;
     end
 end
 
-assign inst_sram_en    = to_fs_valid && fs_allowin;
+assign inst_sram_en    = to_fs_valid && (fs_allowin || wb_flush);
 assign inst_sram_wen   = 4'h0;
-assign inst_sram_addr  = nextpc;
+assign inst_sram_addr  = wb_flush ? wb_flush_pc : nextpc;
 assign inst_sram_wdata = 32'b0;
 
 assign fs_inst         = inst_sram_rdata;

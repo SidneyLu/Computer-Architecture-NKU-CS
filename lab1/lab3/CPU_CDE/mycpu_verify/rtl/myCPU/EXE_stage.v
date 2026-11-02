@@ -9,6 +9,9 @@ module exe_stage(
     //from ds
     input                          ds_to_es_valid,
     input  [`DS_TO_ES_BUS_WD -1:0] ds_to_es_bus  ,
+    input                          wb_flush      ,
+    output                         ex_cancel     ,
+    output                         es_mfc        ,
     //to ms
     output                         es_to_ms_valid,
     output [`ES_TO_MS_BUS_WD -1:0] es_to_ms_bus  ,
@@ -40,7 +43,23 @@ wire [15:0] es_imm        ;
 wire [31:0] es_rs_value   ;
 wire [31:0] es_rt_value   ;
 wire [31:0] es_pc         ;
-assign {es_src2_is_zimm,  //143
+wire        es_bd;
+wire        es_ex;
+wire [ 4:0] es_excode;
+wire [ 1:0] es_cp0_op;
+wire [ 4:0] es_cp0_rd;
+wire        es_ov_en;
+wire        es_badv_we;
+wire [31:0] es_badvaddr;
+assign {es_ov_en       ,  //191
+        es_badv_we     ,  //190
+        es_badvaddr    ,  //189:158
+        es_bd          ,  //157
+        es_ex          ,  //156
+        es_excode      ,  //155:151
+        es_cp0_op      ,  //150:149
+        es_cp0_rd      ,  //148:144
+        es_src2_is_zimm,  //143
         es_mem_op      ,  //142:139
         es_md_op       ,  //138:135
         es_alu_op      ,  //134:123
@@ -103,9 +122,27 @@ assign es_is_divop = es_is_div | es_is_divu;
 
 assign es_ready_go    = (es_is_mul | es_is_divop) ? md_ready : 1'b1;
 assign es_allowin     = !es_valid || es_ready_go && ms_allowin;
-assign es_to_ms_valid =  es_valid && es_ready_go;
+wire        word_unalign = |alu_result[1:0];
+wire        half_unalign = alu_result[0];
+wire        es_ov = es_ov_en && (es_alu_op[1]
+                    ? (es_alu_src1[31] != es_alu_src2[31]) && (alu_result[31] != es_alu_src1[31])
+                    : (es_alu_src1[31] == es_alu_src2[31]) && (alu_result[31] != es_alu_src1[31]));
+wire        es_adel_m = !es_ex && ((es_mem_op == `MEM_LW  && word_unalign) ||
+                                   ((es_mem_op == `MEM_LH || es_mem_op == `MEM_LHU) && half_unalign));
+wire        es_ades_m = !es_ex && ((es_mem_op == `MEM_SW  && word_unalign) ||
+                                   (es_mem_op == `MEM_SH && half_unalign));
+wire        es_ex_f = es_ex || es_ov || es_adel_m || es_ades_m;
+wire [ 4:0] es_excode_f = es_ex     ? es_excode :
+                          es_ov     ? `EXC_OV   :
+                          es_adel_m ? `EXC_ADEL :
+                          es_ades_m ? `EXC_ADES : 5'd0;
+wire        es_badv_we_f = es_badv_we || es_adel_m || es_ades_m;
+wire [31:0] es_badv_f = (es_adel_m || es_ades_m) ? alu_result : es_badvaddr;
+assign es_to_ms_valid =  es_valid && es_ready_go && !wb_flush;
+assign ex_cancel      =  es_valid && (es_ex_f || es_cp0_op == `CP0_ERET);
+assign es_mfc         =  es_valid && es_cp0_op == `CP0_MFC;
 always @(posedge clk) begin
-    if (reset) begin
+    if (reset || wb_flush) begin
         es_valid <= 1'b0;
     end
     else if (es_allowin) begin
@@ -175,6 +212,11 @@ always @(posedge clk) begin
         div_accepted <= 1'b0;
         mul_seen     <= 1'b0;
     end
+    else if (wb_flush) begin
+        md_ready     <= 1'b0;
+        div_accepted <= 1'b0;
+        mul_seen     <= 1'b0;
+    end
     else begin
         if (ds_to_es_valid && es_allowin) begin
             md_ready     <= 1'b0;
@@ -211,7 +253,14 @@ assign es_wb_data = es_is_mfhi ? hi_rdata :
                                  alu_result;
 assign es_alu_result   = es_wb_data;
 assign es_res_from_mem = es_load_op;
-assign es_to_ms_bus = {es_mem_op       ,  //106:103
+assign es_to_ms_bus = {es_badv_we_f   ,  //153
+                       es_badv_f      ,  //152:121
+                       es_bd          ,  //120
+                       es_ex_f        ,  //119
+                       es_excode_f    ,  //118:114
+                       es_cp0_op      ,  //113:112
+                       es_cp0_rd      ,  //111:107
+                       es_mem_op      ,  //106:103
                        es_rt_value     ,  //102:71
                        es_res_from_mem ,  //70
                        es_gr_we        ,  //69
@@ -247,7 +296,7 @@ assign st_data =
                                             es_rt_value;
 
 assign data_sram_en    = 1'b1;
-assign data_sram_wen   = es_valid ? st_wen : 4'h0;
+assign data_sram_wen   = (es_valid && !wb_flush && !es_ex_f) ? st_wen : 4'h0;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = st_data;
 

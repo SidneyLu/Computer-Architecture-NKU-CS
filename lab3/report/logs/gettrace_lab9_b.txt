@@ -1,0 +1,29 @@
+----[1846915 ns] Number 8'd70 Functional Test Point PASS!!!
+----[1853605 ns] Number 8'd71 Functional Test Point PASS!!!
+----[1860205 ns] Number 8'd72 Functional Test Point PASS!!!
+----[1866895 ns] Number 8'd73 Functional Test Point PASS!!!
+----[1874275 ns] Number 8'd74 Functional Test Point PASS!!!
+----[1881675 ns] Number 8'd75 Functional Test Point PASS!!!
+----[1889055 ns] Number 8'd76 Functional Test Point PASS!!!
+----[1896725 ns] Number 8'd77 Functional Test Point PASS!!!
+----[1904395 ns] Number 8'd78 Functional Test Point PASS!!!
+----[1911965 ns] Number 8'd79 Functional Test Point PASS!!!
+----[1918905 ns] Number 8'd80 Functional Test Point PASS!!!
+----[1937725 ns] Number 8'd81 Functional Test Point PASS!!!
+----[1946945 ns] Number 8'd82 Functional Test Point PASS!!!
+----[1962245 ns] Number 8'd83 Functional Test Point PASS!!!
+----[1977545 ns] Number 8'd84 Functional Test Point PASS!!!
+----[1992845 ns] Number 8'd85 Functional Test Point PASS!!!
+----[2008145 ns] Number 8'd86 Functional Test Point PASS!!!
+----[2023445 ns] Number 8'd87 Functional Test Point PASS!!!
+----[2038745 ns] Number 8'd88 Functional Test Point PASS!!!
+----[2054055 ns] Number 8'd89 Functional Test Point PASS!!!
+----[2069375 ns] Number 8'd90 Functional Test Point PASS!!!
+----[2084685 ns] Number 8'd91 Functional Test Point PASS!!!
+----[2099995 ns] Number 8'd92 Functional Test Point PASS!!!
+----[2115305 ns] Number 8'd93 Functional Test Point PASS!!!
+----[2130615 ns] Number 8'd94 Functional Test Point PASS!!!
+==============================================================
+gettrace end!
+----Succeed in generating trace file!
+$finish called at time : 2131085 ns : File "D:/Architecture/lab1/lab3/CPU_CDE/cpu132_gettrace/testbench/tb_top.v" Line 221

@@ -2,11 +2,24 @@
     `define MYCPU_H
 
     `define BR_BUS_WD       33
-    `define FS_TO_DS_BUS_WD 64
-    `define DS_TO_ES_BUS_WD 144
-    `define ES_TO_MS_BUS_WD 107
-    `define MS_TO_WS_BUS_WD 70
+    `define FS_TO_DS_BUS_WD 65
+    `define DS_TO_ES_BUS_WD 192
+    `define ES_TO_MS_BUS_WD 154
+    `define MS_TO_WS_BUS_WD 149
     `define WS_TO_RF_BUS_WD 38
+
+    `define CP0_NONE 2'd0
+    `define CP0_MFC  2'd1
+    `define CP0_MTC  2'd2
+    `define CP0_ERET 2'd3
+
+    `define EXC_INT  5'd0
+    `define EXC_ADEL 5'd4
+    `define EXC_ADES 5'd5
+    `define EXC_SYS  5'd8
+    `define EXC_BP   5'd9
+    `define EXC_RI   5'd10
+    `define EXC_OV   5'd12
 
     `define MEM_NONE 4'd0
     `define MEM_LW   4'd1

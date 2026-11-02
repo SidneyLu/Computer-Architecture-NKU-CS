@@ -1,0 +1,305 @@
+\documentclass{article}
+
+\usepackage{a4}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{ctex}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{fvextra}
+\usepackage{xurl}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue,citecolor=black}
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{
+  breaklines=true,
+  breakanywhere=true,
+  fontsize=\small
+}
+\newcommand{\TraceSize}{\fontsize{5}{6.05}\selectfont}
+\newcommand{\tracecol}[2]{%
+  \begin{minipage}[t]{0.492\textwidth}
+    \centering{\small #1}\par\vspace{0.25em}
+    \VerbatimInput[fontsize=\TraceSize,breaklines=true,breakanywhere=true]{#2}
+  \end{minipage}%
+}
+\newcommand{\tracepair}[2]{%
+  \par\noindent\tracecol{gettrace}{#1}\hfill\tracecol{mycpu}{#2}\par
+}
+\setlist[itemize]{nosep,leftmargin=1.8em}
+\setlist[enumerate]{nosep,leftmargin=1.8em}
+
+\title{计算机体系结构\\实验3\\例外与中断的添加}
+\author{鲁昕宁 \quad 2414015}
+\date{2026年11月2日}
+\begin{document}
+
+\maketitle
+\begin{center}
+\begin{tabular}{ll}
+GitHub仓库 & \parbox[t]{0.72\textwidth}{\url{SidneyLu/Computer-Architecture-NKU-CS/tree/master/lab3}} \\[0.6em]
+班号 & \underline{0964} \\[0.6em]
+授课教师 & \underline{董前琨} \\[0.6em]
+\end{tabular}
+\end{center}
+
+\newpage
+
+\section{实验目标}
+本实验接着实验2的五级流水线，完成《CPU设计实战》第7章两个实践任务。
+CPU 仍是 \texttt{mycpu\_verify/rtl/myCPU}。
+
+\begin{enumerate}
+  \item 增加 \texttt{MFC0}、\texttt{MTC0}、\texttt{ERET} 和 \texttt{SYSCALL}，
+        以及 CP0 的 Status、Cause、EPC，使 \texttt{func\_lab8} 的 69 个功能点与参考轨迹一致。
+  \item 增加 Break、地址错、整数溢出和保留指令，以及 Count、Compare、BadVAddr。
+        定时器中断固定在硬件中断 5，即 Cause 的 IP7。
+        硬件中断 0～5 对应 IP7～IP2，软件中断对应 IP1、IP0。
+        \texttt{func\_lab9} 共 94 个功能点。
+\end{enumerate}
+
+前递、load-use 停顿、HI/LO 和延迟槽沿用实验1、实验2。
+没有实验箱，比特流和记忆游戏不上板，结论以 trace 对比为准。
+
+\section{实验原理}
+\subsection{CP0 与例外入口}
+CP0 放在写回级。复位时 Status 为 \texttt{0x10400004}，即 CU0、BEV、ERL 为 1；
+Cause 的 ExcCode 为 \texttt{0x1f}。BEV 为 1 时入口是 \texttt{0xbfc00380}，
+否则是 \texttt{0x80000180}。\texttt{func\_lab8} 先执行
+\texttt{mtc0}，把 Status 写成 \texttt{0x00400000}，BEV 仍为 1，ERL 被清掉，
+随后的 \texttt{SYSCALL} 进入 \texttt{0xbfc00380}。
+
+\texttt{MTC0} 写 Status 时只改 CU0、BEV、NMI、IM、KSU、ERL、EXL、IE。
+例外把 EXL 置 1。\texttt{ERET} 在 ERL 为 0 时清 EXL，并清 ERL。
+EPC 和 Cause.BD 只在 EXL 为 0 时更新：受害指令在延迟槽中时 EPC 为该指令 PC 减 4，
+否则 EPC 就是该指令的 PC。Cause 的域顺序与参考 CPU 相同，
+测试程序随后会用掩码判断 ExcCode，trace 则比较 \texttt{MFC0} 写出的整字。
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+例外 & ExcCode \\
+\midrule
+中断 & 0 \\
+取指或读地址错（AdEL） & 4 \\
+写地址错（AdES） & 5 \\
+\texttt{SYSCALL} & 8 \\
+\texttt{BREAK} & 9 \\
+保留指令 & 10 \\
+整数溢出 & 12 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+ExcCode 0 是合法的中断编码，所以流水线另用一位表示“本条是例外”，
+写回级再决定把它当成中断还是这条指令自己的例外。
+
+\subsection{精确例外}
+\texttt{SYSCALL}、\texttt{BREAK}、保留指令和取指地址错在译码级标出。
+溢出、\texttt{LW}/\texttt{LH}/\texttt{LHU} 的地址错和 \texttt{SW}/\texttt{SH} 的地址错
+要等执行级算出地址或加减结果。例外指令一旦进入执行级，
+\texttt{ex\_cancel} 清掉更年轻的取指和译码，并挡住新指令进入执行级。
+因此 \texttt{SYSCALL} 后面的 \texttt{sw}、\texttt{mtc0} 或乘除不会改内存、EPC 或 HI/LO。
+写回级才更新 CP0，并向取指发出冲刷：\texttt{ERET} 去 EPC，其余例外去入口。
+
+指令 RAM 的读数据晚一拍。冲刷的当拍就用入口或 EPC 发读请求，
+同时把取指级的 PC 和有效位置上。下一拍返回的指令和这个 PC 一起进入译码。
+
+\subsection{延迟槽与返回}
+译码级停着分支或跳转时，取指级正在取的那一条是延迟槽，BD 随它往后流。
+延迟槽里发生例外时 EPC 记分支的 PC。
+通用处理程序读 Cause.BD：为 0 则把 EPC 加 4，否则加 8，再 \texttt{MTC0} 写回并 \texttt{ERET}。
+这样延迟槽例外返回到分支后面第二条，槽里的指令不会再执行一次。
+
+中断处理程序不看 BD，直接把 EPC 加 8。
+定时器和软件中断的测试在 \texttt{1: b 1b; nop} 上自旋，并要求 EPC 等于标号 \texttt{1}。
+受害指令若是这条分支，EPC 就是它的 PC；若是槽里的 \texttt{nop}，BD 为 1，EPC 仍是分支的 PC。
+两种情况返回地址都是分支加 8。该处理程序在读 Cause 时关掉 trace 比较，因为 BD 可能不同。
+
+\subsection{中断}
+\begin{verbatim}
+int_req = IE && !EXL && !ERL && |(IM & IP)
+\end{verbatim}
+中断在写回级受理，受害指令是当时写回的那一条，并且它本身不是例外。
+受理后 EXL 置 1，后面的指令被冲刷，处理程序里不再嵌套。
+
+Count 用一位每拍翻转的使能，隔拍加 1，与参考 CPU 的 \texttt{count\_add\_en} 一致。
+Count 等于 Compare 时 TI 置 1，\texttt{MTC0} 写 Compare 时 TI 清 0。
+IP7～IP2 比中断源晚一拍：IP7 是硬件中断 5 与 TI 的或，IP6～IP2 是硬件中断 4～0，
+IP1 和 IP0 由 \texttt{MTC0} 写 Cause 的对应位。
+SoC 把 6 位硬件中断输入接成 0。\texttt{func\_lab9} 的定时器只靠 TI，软件中断只写 IP1/IP0。
+
+\subsection{MFC0 的数据相关}
+\texttt{MFC0} 的结果在写回级才从 CP0 读出，执行级和访存级没有这个数。
+它停在这两级、并且目的寄存器正是译码级要读的寄存器时，译码级停住，
+前递也不把 ALU 的值送出去。它到达写回后，写回数据换成 CP0 的读数，
+实验1的写回前递继续可用。处理程序里紧挨着的是
+\texttt{mfc0 k0; bne k0, ...}，这一拍停顿是必需的。
+
+\section{实验过程}
+\subsection{程序与轨迹}
+\texttt{func\_lab8}、\texttt{func\_lab9} 放在 \texttt{CPU\_CDE/soft/}，与 \texttt{func\_lab7} 同级。
+两个工程里的 \texttt{inst\_ram} 都是锁定的旧 IP，先 \texttt{upgrade\_ip}，
+再把 COE 指到对应的 \texttt{obj/inst\_ram.coe} 并重新生成仿真文件。
+\texttt{cpu132\_gettrace} 跑完得到 \texttt{golden\_trace.txt}，
+\texttt{mycpu} 的 testbench 在写非 0 寄存器时逐条比较。
+
+\texttt{func\_lab8} 的测试数为 $23+19+26+1=69$，新增的一点是 \texttt{SYSCALL}。
+\texttt{func\_lab9} 再加 25 点，共 94。新增点依次是 Break，
+\texttt{ADD}/\texttt{ADDI}/\texttt{SUB} 溢出，
+\texttt{LW}/\texttt{LH}/\texttt{LHU} 读地址错，\texttt{SW}/\texttt{SH} 写地址错，
+取指地址错，保留指令，定时器中断，软件中断，
+以及放在 \texttt{BEQ} 到 \texttt{JALR} 延迟槽里的例外。
+
+\subsection{func\_lab8}
+{\sloppy
+69 个功能点一次通过。
+第 42 点 \texttt{mycpu} 为 1077305\,ns，\texttt{gettrace} 为 1193795\,ns。
+第 68 点分别为 1644675\,ns 和 1835425\,ns。
+这两个时刻与实验2的 \texttt{func\_lab6}、\texttt{func\_lab7} 相同。
+\par}
+第 69 点是 \texttt{SYSCALL}：\texttt{mycpu} 1649965\,ns，\texttt{gettrace} 1841065\,ns。
+结束时间见第~\ref{sec:trace}~节。
+
+\subsection{func\_lab9}
+换成 \texttt{func\_lab9} 的 COE 后，前 69 点的通过时刻与 \texttt{func\_lab8} 相同，
+第 70 到 94 点继续通过。第 94 点 \texttt{mycpu} 为 1939805\,ns，
+\texttt{gettrace} 为 2130615\,ns。两边从第 69 点到第 94 点都增加约 0.290\,ms。
+
+\section{关键代码}
+\subsection{译码级的例外}
+取指 PC 的低两位非 0 时是 AdEL，BadVAddr 就是这个 PC。
+操作码不属于实验2已实现的指令，也不是 \texttt{MFC0}/\texttt{MTC0}/\texttt{ERET}/
+\texttt{SYSCALL}/\texttt{BREAK} 时，记为保留指令。
+\texttt{ADD}、\texttt{ADDI}、\texttt{SUB} 只先带上溢出检查使能，真正的判断在执行级。
+\begin{verbatim}
+wire inst_adel_if = |ds_pc[1:0];
+wire inst_ri      = ~inst_known & ~inst_adel_if;
+wire ds_ex        = inst_syscall | inst_break | inst_ri | inst_adel_if;
+wire [4:0] ds_excode = inst_adel_if ? `EXC_ADEL :
+                       inst_syscall ? `EXC_SYS  :
+                       inst_break   ? `EXC_BP   :
+                       inst_ri      ? `EXC_RI   : 5'd0;
+wire ds_ov_en = inst_add | inst_addi | inst_sub;
+\end{verbatim}
+这类指令的访存操作和乘除操作改成空，避免保留指令的位型撞上 \texttt{DIV} 时把执行级停住。
+
+\subsection{执行级}
+有符号加减在两操作数符号相同（减法为相异）、结果符号与被减数或被加数不同时溢出。
+\texttt{ADDU}/\texttt{ADDIU}/\texttt{SUBU} 不带 \texttt{es\_ov\_en}。
+字地址错看最低两位，半字地址错看最低一位。例外指令的写使能为 0。
+\begin{verbatim}
+wire es_ov = es_ov_en && (es_alu_op[1]
+             ? (es_alu_src1[31] != es_alu_src2[31])
+               && (alu_result[31] != es_alu_src1[31])
+             : (es_alu_src1[31] == es_alu_src2[31])
+               && (alu_result[31] != es_alu_src1[31]));
+wire es_ex_f   = es_ex || es_ov || es_adel_m || es_ades_m;
+assign ex_cancel = es_valid && (es_ex_f || es_cp0_op == `CP0_ERET);
+assign data_sram_wen = (es_valid && !wb_flush && !es_ex_f) ? st_wen : 4'h0;
+\end{verbatim}
+地址错时 BadVAddr 取 ALU 结果。取指地址错的 BadVAddr 仍是译码级传来的 PC。
+
+\subsection{CP0}
+例外优先于 \texttt{MTC0} 和 \texttt{ERET} 修改 EXL。EPC 在 EXL 已为 1 时保持不变。
+\begin{verbatim}
+if (ws_valid && ws_mtc0 && ws_addr == 5'd11)
+    cause_ti <= 1'b0;
+else if (count == compare)
+    cause_ti <= 1'b1;
+
+cause_hwip <= {hw_int[5] | cause_ti, hw_int[4:0]};
+
+if (ws_valid && ws_ex && !status_exl)
+    cause_epc <= ws_bd ? (ws_pc - 32'd4) : ws_pc;
+if (ws_valid && ws_ex)
+    status[1] <= 1'b1;
+else if (ws_valid && ws_eret)
+    status[1] <= status_erl ? status[1] : 1'b0;
+\end{verbatim}
+\texttt{MFC0} 按寄存器号读 BadVAddr、Count、Compare、Status、Cause、EPC，其余号返回 0。
+
+\subsection{冲刷与 MFC0 停顿}
+\begin{verbatim}
+assign inst_sram_addr = wb_flush ? wb_flush_pc : nextpc;
+else if (wb_flush) begin
+    fs_valid <= 1'b1;
+    fs_pc    <= wb_flush_pc;
+end
+
+wire mfc_use = (es_mfc && (es_dest != 5'd0) && (...))
+            || (ms_mfc && (ms_dest != 5'd0) && (...));
+assign ds_ready_go = ~load_use && ~mfc_use;
+assign rf_we    = ws_gr_we && ws_valid && !take_ex;
+assign rf_wdata = ws_mfc0 ? cp0_rdata : ws_final_result;
+\end{verbatim}
+例外指令即使译码时 \texttt{gr\_we} 为 1（溢出的 \texttt{ADD}、地址错的 \texttt{LW}），
+写回级也不写通用寄存器。中断的受害指令仍按原意写回，EPC 指向它，返回后会再执行。
+
+\section{实验结果}
+\subsection{功能点对比}
+\label{sec:trace}
+仿真控制台每隔约 10\,\textmu s 打印一行 \texttt{Test is running}。
+下面保留功能点通过行和结束行。左栏是 \texttt{cpu132\_gettrace}，右栏是 \texttt{mycpu}。
+\texttt{gettrace} 结束时打印 \texttt{gettrace end!}；
+\texttt{mycpu} 结束时打印 \texttt{----PASS!!!}。
+
+\texttt{func\_lab8} 两边都到第 69 点。\texttt{gettrace} 在 1841525\,ns 结束，
+\texttt{mycpu} 在 1650425\,ns 结束。前 68 点与实验2的 \texttt{func\_lab7} 时刻相同。
+
+\tracepair{logs/gettrace_lab8.txt}{logs/mycpu_lab8.txt}
+
+\texttt{func\_lab9} 两边都到第 94 点。\texttt{gettrace} 在 2131085\,ns 结束，
+\texttt{mycpu} 在 1940275\,ns 结束。第 69 点仍是 1841065\,ns 与 1649965\,ns。
+从第 42 点起两边相差约 0.116\,ms，到第 68 点及以后约为 0.191\,ms，
+与实验2里乘法之后拉开的差距相同。前 69 点与上一节相同，下面分成两段。
+
+\tracepair{logs/gettrace_lab9_a.txt}{logs/mycpu_lab9_a.txt}
+
+\tracepair{logs/gettrace_lab9_b.txt}{logs/mycpu_lab9_b.txt}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+程序 & \texttt{mycpu} 结束 & \texttt{gettrace} 结束 \\
+\midrule
+\texttt{func\_lab8}（69 点） & 1.650\,ms & 1.842\,ms \\
+\texttt{func\_lab9}（94 点） & 1.940\,ms & 2.131\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{实验收获}
+例外和中断都要到写回级才改 CP0，更年轻的指令在例外进入执行级时就被丢掉，
+这样 \texttt{SYSCALL} 后面的存储不会先于处理程序写进数据 RAM。
+\texttt{MFC0} 的结果出现得比 ALU 晚，处理程序里紧接着的比较要按 load-use 再停两级。
+Cause、Status 的位必须和参考 CPU 一致，因为 trace 比较的是 \texttt{MFC0} 写出的整字，
+处理程序自己的掩码盖不住多余的 TI 或 IP。
+Count 隔拍加 1、IP7 比 TI 晚一拍之后，定时器和软件中断都能在自旋分支上被受理，
+EPC 落在该分支上，处理程序加 8 后跳过分支和它的延迟槽。
+
+\section{附：源码目录}
+CPU 仍在实验1的工程里改。\texttt{lab3} 放测试程序、仿真脚本和本报告。
+\begin{itemize}
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/cp0.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/IF_stage.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/ID_stage.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/EXE_stage.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/MEM_stage.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/WB_stage.v|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/mycpu.h|
+\item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/mycpu_top.v|
+\item \verb|lab1/lab3/CPU_CDE/cpu132_gettrace/golden_trace.txt|
+\item \verb|lab1/lab3/CPU_CDE/soft/func_lab8/obj/inst_ram.coe|
+\item \verb|lab1/lab3/CPU_CDE/soft/func_lab9/obj/inst_ram.coe|
+\item \verb|lab3/sim/run_gettrace_lab8.tcl|
+\item \verb|lab3/sim/run_mycpu_lab8.tcl|
+\item \verb|lab3/sim/run_gettrace_lab9.tcl|
+\item \verb|lab3/sim/run_mycpu_lab9.tcl|
+\item \verb|lab3/report/report.tex|
+\end{itemize}
+
+\end{document}

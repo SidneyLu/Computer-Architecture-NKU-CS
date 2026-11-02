@@ -1,0 +1,29 @@
+----[1655465 ns] Number 8'd70 Functional Test Point PASS!!!
+----[1661805 ns] Number 8'd71 Functional Test Point PASS!!!
+----[1668055 ns] Number 8'd72 Functional Test Point PASS!!!
+----[1674395 ns] Number 8'd73 Functional Test Point PASS!!!
+----[1681565 ns] Number 8'd74 Functional Test Point PASS!!!
+----[1688755 ns] Number 8'd75 Functional Test Point PASS!!!
+----[1695925 ns] Number 8'd76 Functional Test Point PASS!!!
+----[1703385 ns] Number 8'd77 Functional Test Point PASS!!!
+----[1710845 ns] Number 8'd78 Functional Test Point PASS!!!
+----[1718215 ns] Number 8'd79 Functional Test Point PASS!!!
+----[1724805 ns] Number 8'd80 Functional Test Point PASS!!!
+----[1742565 ns] Number 8'd81 Functional Test Point PASS!!!
+----[1750735 ns] Number 8'd82 Functional Test Point PASS!!!
+----[1766485 ns] Number 8'd83 Functional Test Point PASS!!!
+----[1782235 ns] Number 8'd84 Functional Test Point PASS!!!
+----[1797985 ns] Number 8'd85 Functional Test Point PASS!!!
+----[1813735 ns] Number 8'd86 Functional Test Point PASS!!!
+----[1829485 ns] Number 8'd87 Functional Test Point PASS!!!
+----[1845235 ns] Number 8'd88 Functional Test Point PASS!!!
+----[1860995 ns] Number 8'd89 Functional Test Point PASS!!!
+----[1876765 ns] Number 8'd90 Functional Test Point PASS!!!
+----[1892525 ns] Number 8'd91 Functional Test Point PASS!!!
+----[1908285 ns] Number 8'd92 Functional Test Point PASS!!!
+----[1924045 ns] Number 8'd93 Functional Test Point PASS!!!
+----[1939805 ns] Number 8'd94 Functional Test Point PASS!!!
+==============================================================
+Test end!
+----PASS!!!
+$finish called at time : 1940275 ns : File "D:/Architecture/lab1/lab3/CPU_CDE/mycpu_verify/testbench/mycpu_tb.v" Line 267

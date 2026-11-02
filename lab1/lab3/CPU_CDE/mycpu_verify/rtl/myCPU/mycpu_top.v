@@ -1,6 +1,7 @@
 module mycpu_top(
     input         clk,
     input         resetn,
+    input  [5:0]  hw_int,
     // inst sram interface
     output        inst_sram_en,
     output [ 3:0] inst_sram_wen,
@@ -45,6 +46,12 @@ wire         ms_valid;
 wire         ms_gr_we;
 wire [ 4:0]  ms_dest;
 wire [31:0]  ms_final_result;
+wire         ds_is_bj;
+wire         wb_flush;
+wire [31:0]  wb_flush_pc;
+wire         ex_cancel;
+wire         es_mfc;
+wire         ms_mfc;
 
 // IF stage
 if_stage if_stage(
@@ -54,6 +61,10 @@ if_stage if_stage(
     .ds_allowin     (ds_allowin     ),
     //brbus
     .br_bus         (br_bus         ),
+    .ds_is_bj       (ds_is_bj       ),
+    .wb_flush       (wb_flush       ),
+    .wb_flush_pc    (wb_flush_pc    ),
+    .ex_cancel      (ex_cancel      ),
     //outputs
     .fs_to_ds_valid (fs_to_ds_valid ),
     .fs_to_ds_bus   (fs_to_ds_bus   ),
@@ -79,6 +90,11 @@ id_stage id_stage(
     .ds_to_es_bus   (ds_to_es_bus   ),
     //to fs
     .br_bus         (br_bus         ),
+    .ds_is_bj       (ds_is_bj       ),
+    .wb_flush       (wb_flush       ),
+    .ex_cancel      (ex_cancel      ),
+    .es_mfc         (es_mfc         ),
+    .ms_mfc         (ms_mfc         ),
     //to rf: for write back
     .ws_to_rf_bus   (ws_to_rf_bus   ),
     .es_valid       (es_valid       ),
@@ -101,6 +117,9 @@ exe_stage exe_stage(
     //from ds
     .ds_to_es_valid (ds_to_es_valid ),
     .ds_to_es_bus   (ds_to_es_bus   ),
+    .wb_flush       (wb_flush       ),
+    .ex_cancel      (ex_cancel      ),
+    .es_mfc         (es_mfc         ),
     //to ms
     .es_to_ms_valid (es_to_ms_valid ),
     .es_to_ms_bus   (es_to_ms_bus   ),
@@ -132,6 +151,8 @@ mem_stage mem_stage(
     .ms_gr_we       (ms_gr_we       ),
     .ms_dest        (ms_dest        ),
     .ms_final_result(ms_final_result),
+    .ms_mfc         (ms_mfc         ),
+    .wb_flush       (wb_flush       ),
     //from data-sram
     .data_sram_rdata(data_sram_rdata)
 );
@@ -150,7 +171,10 @@ wb_stage wb_stage(
     .debug_wb_pc      (debug_wb_pc      ),
     .debug_wb_rf_wen  (debug_wb_rf_wen  ),
     .debug_wb_rf_wnum (debug_wb_rf_wnum ),
-    .debug_wb_rf_wdata(debug_wb_rf_wdata)
+    .debug_wb_rf_wdata(debug_wb_rf_wdata),
+    .wb_flush         (wb_flush         ),
+    .wb_flush_pc      (wb_flush_pc      ),
+    .hw_int           (hw_int           )
 );
 
 endmodule
