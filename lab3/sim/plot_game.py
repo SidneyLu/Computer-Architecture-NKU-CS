@@ -65,7 +65,7 @@ def lamps():
     ax.set_xlim(-0.4, 8.6)
     ax.set_ylim(-1.55, 3.35)
     ax.axis("off")
-    ax.set_title("八步出题与按键点亮的灯", pad=8)
+    ax.set_title("出题时的灯和按键之后的灯", pad=8)
     ax.text(-0.25, 2.35, "出题", ha="right", va="center", fontsize=9)
     ax.text(-0.25, 0.85, "按键", ha="right", va="center", fontsize=9)
     for i, p in enumerate(PAT):
@@ -77,7 +77,7 @@ def lamps():
                            facecolor=COLOR[p] if on else "#f4f4f4",
                            edgecolor=COLOR[p] if on else "#bbbbbb", lw=0.8)
                 ax.add_patch(c)
-        ax.text(i, 1.55, "一致", ha="center", va="center", fontsize=8, color="#1d6b3a")
+        ax.text(i, 1.55, "相同", ha="center", va="center", fontsize=8, color="#1d6b3a")
         ax.text(i, 0.28, "灯 %04x" % LED[p], ha="center", va="center", fontsize=7, color="#444444")
         ax.text(i, 3.05, str(i), ha="center", va="center", fontsize=8, color="#666666")
     box = FancyBboxPatch((0.15, -1.35), 7.7, 0.85, boxstyle="round,pad=0.02,rounding_size=0.08",

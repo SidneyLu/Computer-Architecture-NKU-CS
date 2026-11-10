@@ -62,15 +62,15 @@ CPU 仍是 \texttt{mycpu\_verify/rtl/myCPU}。
 \end{enumerate}
 
 前递、load-use 停顿、HI/LO 和延迟槽沿用实验1、实验2。
-实验箱未接，比特流没有下载。
-\texttt{func\_lab8}、\texttt{func\_lab9} 的轨迹对比之外，另有一段定向程序把
-SYSCALL、其余异常和三种中断的 Cause、EPC 记下来并画出波形。
-记忆游戏用官方二进制在仿真里走完一轮。
+未接实验箱，因此没有下载比特流。
+除 \texttt{func\_lab8}、\texttt{func\_lab9} 的轨迹对比外，还用一段定向程序记录
+SYSCALL、其余异常和三种中断的 Cause、EPC，并画出波形。
+记忆游戏在仿真里用官方二进制跑完一轮。
 
 \section{实验原理}
-异常和中断都在写回级写入 CP0。写回之前的三级只负责判定，并把 BD、异常有效位、
-ExcCode、CP0 操作和 BadVAddr 随指令往后传。中断的 ExcCode 是 0，
-和“没有异常”无法用编码本身区分，所以总线上单独有一位 \texttt{ex}。
+异常和中断都在写回级写入 CP0。写回以前的三级只做判定，并把 BD、异常有效位、
+ExcCode、CP0 操作和 BadVAddr 一路传到写回。中断的 ExcCode 固定为 0，
+无法仅凭编码与“当前没有异常”区分，因此总线上单独设了一位 \texttt{ex}。
 
 \begin{center}
 \begin{tabular}{lp{0.72\textwidth}}
@@ -87,8 +87,8 @@ ExcCode、CP0 操作和 BadVAddr 随指令往后传。中断的 ExcCode 是 0，
 \end{center}
 
 \subsection{CP0}
-CP0 是写回级里的一组寄存器，布局按参考 CPU 的 GS132，
-因为 trace 比较的是 \texttt{MFC0} 写出的 32 位，处理程序后来做的掩码不影响这次比较。
+CP0 是写回级里的一组寄存器，位域布局与参考 CPU 的 GS132 对齐。
+轨迹比较的是 \texttt{MFC0} 读出的整字，因此处理程序里对 Cause 的掩码改动不会进入比较。
 
 复位时 Status 为 \texttt{0x10400004}：CU0（位 28）、BEV（位 22）、ERL（位 2）为 1。
 Cause 的 ExcCode 复位为 \texttt{0x1f}，其余位为 0。
@@ -99,7 +99,7 @@ BEV 为 1 时异常入口是 \texttt{0xbfc00380}，否则是 \texttt{0x80000180}
 \texttt{MTC0} 写 Status 时只改这些位：CU0、BEV、NMI、IM7～IM0、KSU、ERL、EXL、IE。
 异常写入 CP0 时把 EXL（位 1）置 1，因此 \texttt{SYSCALL} 之后 Status 变成
 \texttt{0x00400002}。\texttt{ERET} 总是清 ERL；ERL 为 0 时同时清 EXL。
-同一拍里异常优先于 \texttt{ERET}，\texttt{ERET} 又优先于 \texttt{MTC0} 对 EXL、ERL 的修改。
+同一拍里，异常写入优先于 \texttt{ERET}，\texttt{ERET} 又优先于 \texttt{MTC0} 对 EXL、ERL 的改写。
 
 EPC 和 Cause.BD 只在把异常写入 CP0、且当时 EXL 为 0 时更新。
 发生异常的指令带 BD 时，EPC 等于它的 PC 减 4，否则 EPC 就是它的 PC。
@@ -135,7 +135,7 @@ store 地址错（AdES） & 5 \\
         它们不写通用寄存器。
   \item 保留指令：操作码不属于实验2已经实现的集合，也不是
         \texttt{MFC0}、\texttt{MTC0}、\texttt{ERET}。取指地址错优先于保留指令，
-        避免把一个错地址上读来的字再当成非法操作码。
+        避免把错地址上读出的字误判为非法操作码。
   \item 取指地址错：该指令的 PC 最低两位不是 0。BadVAddr 记这个 PC。
         同时把访存操作、乘除操作和寄存器写使能清掉，分支也不采纳，
         这样错地址上读到的编码不会去写 HI/LO 或改 PC。
@@ -157,17 +157,17 @@ store 地址错（AdES） & 5 \\
 \end{itemize}
 
 \subsection{精确异常}
-若只在写回级才清空流水线，\texttt{SYSCALL} 进入写回时，后面的 \texttt{sw} 已经到达执行级，
-数据 RAM 的写使能会在流水线被清空之前生效。
-因此异常指令一进入执行级就产生 \texttt{ex\_cancel}。
-还在取指或译码、排在它后面的指令被清成无效，新的译码结果也不能进入执行级。
-\texttt{ERET} 同样拉高 \texttt{ex\_cancel}，它后面的指令不会在返回之前执行。
+如果在写回级才清空流水线，\texttt{SYSCALL} 进入写回时，后面的 \texttt{sw} 往往已在执行级，
+数据 RAM 的写使能会在清空之前生效。
+因此异常指令一旦进入执行级就拉高 \texttt{ex\_cancel}：
+排在它后面、还在取指或译码的指令被清成无效，新的译码结果也不能再进执行级。
+\texttt{ERET} 同样拉高 \texttt{ex\_cancel}，返回地址之前的后续指令不会先执行。
 
-以 \texttt{syscall} 后跟 \texttt{sw} 为例。\texttt{syscall} 在译码级时，\texttt{sw} 还在取指。
-下一拍 \texttt{syscall} 进入执行级，\texttt{ex\_cancel} 为 1，\texttt{sw} 停在译码级且不能前进，
-这一拍结束时译码和取指的有效位被清掉。\texttt{syscall} 再经访存进入写回，
-这一拍更新 EPC、ExcCode 和 EXL，并清空流水线。\texttt{sw} 没有到过执行级，写使能也没有打开。
-处理程序返回后，这条 \texttt{sw} 会重新取指再执行，只是不能先于处理程序写回。
+以 \texttt{syscall} 后跟 \texttt{sw} 为例。\texttt{syscall} 在译码级时，\texttt{sw} 仍在取指。
+下一拍 \texttt{syscall} 进入执行级，\texttt{ex\_cancel} 为 1，\texttt{sw} 停在译码级不能前进，
+该拍末尾译码、取指的有效位被清掉。\texttt{syscall} 经访存进入写回后，
+才更新 EPC、ExcCode、EXL 并清空流水线。\texttt{sw} 不曾进入执行级，写使能也一直为 0。
+处理程序返回后，这条 \texttt{sw} 会重新取指执行，但不会早于处理程序写回。
 
 清空流水线时的目标地址由写回级给出：\texttt{ERET} 用当前 EPC，其它异常和中断用入口地址。
 指令 RAM 的数据晚一拍返回。清空的这一拍就把这个地址送到 \texttt{inst\_sram\_addr}，
@@ -183,8 +183,8 @@ store 地址错（AdES） & 5 \\
 取指总线的最高位带上这个标记，该指令进入译码后成为它的 BD，再随流水线到达写回。
 延迟槽中的异常写入 CP0 时，EPC 写成 BD 所指示的分支 PC。
 
-通用处理程序读 Cause 的位 31。该位为 0 时把 EPC 加 4，否则再加 4，然后 \texttt{MTC0} 写回并 \texttt{ERET}。
-普通异常因此返回到发生异常那条指令的下一条；延迟槽中的异常返回到分支后面的第二条，槽内指令不会再次执行。
+通用处理程序读 Cause 的位 31。BD 为 0 时把 EPC 加 4，为 1 时再加 4，然后 \texttt{MTC0} 写回并 \texttt{ERET}。
+普通异常返回到发生异常那条指令的下一条；延迟槽里的异常返回到分支后的第二条，槽内指令不再执行。
 \texttt{n83} 到 \texttt{n94} 把 \texttt{SYSCALL}、\texttt{BREAK}、溢出等放进
 \texttt{BEQ} 到 \texttt{JALR} 的延迟槽，检查的就是这条 EPC。
 
@@ -194,9 +194,9 @@ store 地址错（AdES） & 5 \\
 int_req = IE && !EXL && !ERL && |(Status[15:8] & IP[7:0])
 \end{verbatim}
 Status 位 15～8 是 IM7～IM0，与 Cause 的 IP7～IP0 按位对应。
-请求在写回级采样。当前指令自身已是异常时，优先把该异常写入 CP0；
-否则在 \texttt{int\_req} 为 1 时，把这条正在写回的指令当作被中断打断的指令，ExcCode 记 0。
-这条指令的通用寄存器写回仍然完成，EPC 指向它。
+请求在写回级采样。若当前指令自身已是异常，优先把该异常写入 CP0；
+否则在 \texttt{int\_req} 为 1 时，把正在写回的这条指令记为被中断打断，ExcCode 为 0。
+该指令的通用寄存器写回照常完成，EPC 指向它。
 EXL 在同一拍置 1，下一拍起 \texttt{int\_req} 为 0，处理程序执行期间不再采样新的中断。
 
 Count 每拍翻转一位使能，使能为 1 的那一拍才加 1，和参考 CPU 的 \texttt{count\_add\_en} 相同。
@@ -205,19 +205,19 @@ Count 与 Compare 相等时 TI 置 1；\texttt{MTC0} 写 Compare 的那一拍把
 
 IP7～IP2 比中断源晚一拍写入 Cause。IP7 是外部硬件中断 5 与 TI 相或，
 IP6～IP2 分别是硬件中断 4～0。IP1、IP0 只由 \texttt{MTC0} 写 Cause 的位 9、位 8。
-SoC 把 \texttt{hw\_int[5:0]} 接成 0，因此 \texttt{func\_lab9} 里 IP7 只由定时器抬起。
+SoC 将 \texttt{hw\_int[5:0]} 固定为 0，故 \texttt{func\_lab9} 中 IP7 仅由定时器置位。
 定时器测试把 IE 和全部 IM 打开，把 Count 设到 Compare 附近，然后执行
 \texttt{1: b 1b; nop}。软件中断测试用同样的 Status，再 \texttt{MTC0} 把 IP1 或 IP0 写成 1。
 
 中断处理程序要求 EPC 等于标号 \texttt{1}，然后自己把 EPC 加 8 再 \texttt{ERET}，
 从而跳过这条分支和它的延迟槽。被打断的是这条分支时，BD 为 0，EPC 就是分支 PC。
 被打断的是槽里的 \texttt{nop} 时，BD 为 1，EPC 仍是分支 PC。
-两条路径的返回地址相同。处理程序在读 Cause 时关闭 trace 比较，BD 的差别不会进入 \texttt{golden\_trace.txt}。
+两种情况下返回地址相同。处理程序读 Cause 时会关闭轨迹比较，BD 的差别不会写入 \texttt{golden\_trace.txt}。
 
 \subsection{MFC0 的数据相关}
 \texttt{MFC0} 的目的寄存器是 \texttt{rt}，数值要等写回级按 \texttt{rd} 读 CP0 才存在。
-执行级和访存级里的 ALU 结果不能前递。要用这个结果的指令还在译码级、而 \texttt{MFC0} 还在执行级或访存级时，
-按 load-use 的条件把 \texttt{ds\_ready\_go} 拉低，译码级停两拍。
+执行级和访存级里的 ALU 结果不能前递。要用该结果的指令还在译码级，而 \texttt{MFC0} 仍在执行级或访存级时，
+译码级按与 load-use 相同的条件停顿，最多停两拍。
 \texttt{MFC0} 到达写回后，\texttt{rf\_wdata} 换成 CP0 读数，实验1的写回前递把这个数送给下一条。
 入口处理程序的典型序列是 \texttt{mfc0 k0} 紧接 \texttt{bne k0, ...}，
 比较用的就是这一路前递。
@@ -250,8 +250,8 @@ SoC 把 \texttt{hw\_int[5:0]} 接成 0，因此 \texttt{func\_lab9} 里 IP7 只�
 结束时间见第~\ref{sec:trace}~节。
 
 \subsection{func\_lab9}
-换成 \texttt{func\_lab9} 的 COE 后，前 69 点的通过时刻与 \texttt{func\_lab8} 相同。
-第 70 到 94 点覆盖其余异常和中断，也全部通过。
+载入 \texttt{func\_lab9} 的 COE 后，前 69 点的通过时刻与 \texttt{func\_lab8} 一致。
+第 70 至 94 点覆盖其余异常和中断，同样全部通过。
 第 94 点 \texttt{mycpu} 为 1939805\,ns，\texttt{gettrace} 为 2130615\,ns。
 从第 69 点到第 94 点，两边各增加约 0.290\,ms。
 
@@ -349,8 +349,8 @@ EPC 仍指向该指令；中断处理程序再把 EPC 加 8，返回时跳过它
 \texttt{func\_lab9} 两边都到第 94 点。\texttt{gettrace} 在 2131085\,ns 结束，
 \texttt{mycpu} 在 1940275\,ns 结束。第 69 点仍是 1841065\,ns 与 1649965\,ns。
 从第 42 点起两边相差约 0.116\,ms，到第 68 点及以后约为 0.191\,ms。
-这是实验2里乘法指令拉开的差距，异常和中断没有再把它扩大。
-记录在第 69 点处分成两段，前一段与 \texttt{func\_lab8} 相同。
+差距来自实验2里乘法指令带来的时序差，异常和中断没有继续拉大。
+轨迹在第 69 点处分成两段，前半与 \texttt{func\_lab8} 相同。
 
 \tracepair{logs/gettrace_lab9_a.txt}{logs/mycpu_lab9_a.txt}
 
@@ -370,11 +370,12 @@ EPC 仍指向该指令；中断处理程序再把 EPC 加 8，返回时跳过它
 \subsection{定向程序与波形}
 \label{sec:wave}
 \texttt{func\_lab9} 比较的是写回寄存器的数据。
-为了直接看到 Cause 和 EPC，\texttt{lab3/sim/wave\_tb.v} 跑一段只含异常和中断的程序，
-每条事件在 \texttt{0xbfc00380} 的处理程序里把当时的 Cause、EPC 存到 \texttt{0x80000100}。
-异常则把 EPC 加 4 再 \texttt{ERET}，返回后写下序号。
-程序一开始把 Compare 写成全 1，复位后 Count 与 Compare 同为 0 时不会把 TI 留在 Cause 里。
-Status 先只开 BEV。五条异常都返回后，\texttt{0x80000000} 起的序号是 1、2、3、4、5。
+为直接观察 Cause 和 EPC，另用 \texttt{wave\_tb.v} 运行一段只含异常与中断的程序。
+每次事件进入 \texttt{0xbfc00380} 的处理程序后，
+把当时的 Cause、EPC 存到 \texttt{0x80000100}。
+遇到异常时把 EPC 加 4 再 \texttt{ERET}，返回后在 \texttt{0x80000000} 起写下序号。
+程序先把 Compare 写成全 1，避免复位后 Count 与 Compare 同为 0 时 TI 一直留在 Cause 里。
+Status 先只开 BEV；五条异常都返回后，序号为 1、2、3、4、5。
 
 \begin{center}
 \begin{tabular}{llcc}
@@ -393,18 +394,18 @@ BREAK & \texttt{0x00000024} & \texttt{0xbfc00038} & 9 \\
 \end{tabular}
 \end{center}
 
-处理程序存下的 Cause 按位域来读：位 31 是 BD，位 30 是 TI，位 15～8 是 IP7～IP0，位 6～2 是 ExcCode。
-五条异常的 BD、TI 和 IP 都是 0，Cause 就是 ExcCode 左移 2 位。
-8、9、12、4、10 分别得到 \texttt{0x20}、\texttt{0x24}、\texttt{0x30}、\texttt{0x10}、\texttt{0x28}，与表中五个数一致。
-异常写回的下一拍 Status 为 \texttt{0x00400002}，即原来的 BEV 再加上 EXL。
-\texttt{ERET} 的下一拍 EXL 清掉，Status 回到 \texttt{0x00400000}，EPC 已经加 4。
+处理程序存下的 Cause 按位域读：位 31 为 BD，位 30 为 TI，位 15～8 为 IP7～IP0，位 6～2 为 ExcCode。
+五条异常的 BD、TI、IP 均为 0，Cause 等于 ExcCode 左移 2 位；
+ExcCode 8、9、12、4、10 对应 \texttt{0x20}、\texttt{0x24}、\texttt{0x30}、\texttt{0x10}、\texttt{0x28}，与上表一致。
+异常写回的下一拍 Status 为 \texttt{0x00400002}，在原有 BEV 上加上 EXL；
+\texttt{ERET} 的下一拍 EXL 清零，Status 回到 \texttt{0x00400000}，EPC 已加 4。
 
-SYSCALL 的 EPC \texttt{0xbfc00028} 就是这条指令的 PC。
-第 15 拍它还在执行级，\texttt{ex\_cancel} 为 1；第 16 拍译码级 valid 变 0；
-第 17 拍写回 PC 为 \texttt{0xbfc00028} 并清空流水线；第 18 拍取指地址已是 \texttt{0xbfc00380}，EPC 也已写成 \texttt{0xbfc00028}。
-紧跟着的 \texttt{sw \$t0, 0x200(\$s0)} 在这之前没有 \texttt{data\_wen}。
-处理程序把 EPC 加 4，\texttt{ERET} 回到 \texttt{0xbfc0002c}，第 37 拍这条 \texttt{sw} 才把 \texttt{0x1111} 写进 \texttt{0x80000200}。
-图里 \texttt{data\_wen} 的脉冲都在进入处理程序之后。返回后序号 1 写到 \texttt{0x80000000}。
+SYSCALL 的 EPC \texttt{0xbfc00028} 即该指令的 PC。
+第 15 拍它仍在执行级，\texttt{ex\_cancel} 为 1；第 16 拍译码级 valid 变 0；
+第 17 拍写回 PC 为 \texttt{0xbfc00028} 并清空流水线；第 18 拍取指地址已是 \texttt{0xbfc00380}，EPC 写成 \texttt{0xbfc00028}。
+紧随其后的 \texttt{sw \$t0, 0x200(\$s0)} 在此之前没有 \texttt{data\_wen}。
+处理程序将 EPC 加 4，\texttt{ERET} 回到 \texttt{0xbfc0002c}；第 37 拍这条 \texttt{sw} 才向 \texttt{0x80000200} 写入 \texttt{0x1111}。
+波形里 \texttt{data\_wen} 的脉冲均出现在进入处理程序之后。返回后序号 1 写到 \texttt{0x80000000}。
 
 \begin{figure}[H]
 \centering
@@ -412,9 +413,9 @@ SYSCALL 的 EPC \texttt{0xbfc00028} 就是这条指令的 PC。
 \caption{SYSCALL。ExcCode 在清空流水线的下一拍变为 8，EPC 低 12 位为 \texttt{0x028}。}
 \end{figure}
 
-溢出是 \texttt{add} 把两个 \texttt{0x80000000} 相加。第 68 拍写回 PC 和下一拍的 EPC 都是 \texttt{0xbfc0004c}，这条 \texttt{add} 的地址；ExcCode 为 12。
-BREAK、对地址 1 的 \texttt{lw}、字 \texttt{0xffffffff} 同样在写回当拍对准自己的 PC，ExcCode 为 9、4、10。
-五次返回后 \texttt{0x80000000} 起的序号是 1、2、3、4、5，说明 EPC 加 4 都落在异常指令的下一条，没有把异常指令再执行一遍。
+溢出由 \texttt{add} 把两个 \texttt{0x80000000} 相加引起。第 68 拍写回 PC 与下一拍 EPC 均为 \texttt{0xbfc0004c}，ExcCode 为 12。
+BREAK、对地址 1 的 \texttt{lw}、非法字 \texttt{0xffffffff} 也在写回当拍对准各自 PC，ExcCode 为 9、4、10。
+五次返回后序号为 1～5，说明 EPC 加 4 均落在异常指令的下一条，异常指令本身不会再次执行。
 
 \begin{figure}[H]
 \centering
@@ -423,14 +424,15 @@ BREAK、对地址 1 的 \texttt{lw}、字 \texttt{0xffffffff} 同样在写回当
 \end{figure}
 
 \subsection{三种中断}
-软件中断由 \texttt{MTC0} 把 Cause 的位 8 写成 1。Compare 仍是全 1，所以 TI 保持 0。
-IP0 要等这拍写入之后才参与 \texttt{int\_req}，因此被打断的不是 \texttt{MTC0} 本身，而是它后面的第一条 \texttt{nop}。
-第 152 拍写回 PC 为 \texttt{0xbfc000a0}。下一拍 Cause 为 \texttt{0x00000100}，EPC 也是 \texttt{0xbfc000a0}，Status 为 \texttt{0x0040ff03}：BEV、八位 IM、IE 和 EXL 都为 1。
-\texttt{0x100} 只有 IP0，ExcCode 和 BD 都是 0。分支在 \texttt{0xbfc000a8}，这一拍还没有写回。
-处理程序清掉 IP0，并把 EPC 改到时钟中断的入口 \texttt{0xbfc000b0}。
-第 175 拍 \texttt{ERET} 之后 Cause 为 0，Status 为 \texttt{0x0040ff01}，IE 仍开着，EXL 已清。
-\texttt{func\_lab9} 的 \texttt{n82} 把同样的请求留在 \texttt{b 1b} 上，轨迹里的 EPC 等于该分支。
-两条路径都是写回级采样，受害指令是当时正要写回的那一条。
+软件中断由 \texttt{MTC0} 将 Cause 的位 8 写成 1。Compare 仍为全 1，TI 保持 0。
+IP0 须等写入生效后才参与 \texttt{int\_req}，被打断的是其后的第一条 \texttt{nop}。
+第 152 拍写回 PC 为 \texttt{0xbfc000a0}；下一拍 Cause 为 \texttt{0x00000100}，EPC 同为 \texttt{0xbfc000a0}，
+Status 为 \texttt{0x0040ff03}，BEV、全部 IM、IE 与 EXL 均为 1。
+\texttt{0x100} 仅含 IP0，ExcCode 与 BD 均为 0；分支在 \texttt{0xbfc000a8}，此拍尚未写回。
+处理程序清除 IP0，并将 EPC 改到时钟中断入口 \texttt{0xbfc000b0}。
+第 175 拍 \texttt{ERET} 后 Cause 为 0，Status 为 \texttt{0x0040ff01}，IE 仍开，EXL 已清。
+\texttt{func\_lab9} 的 \texttt{n82} 把同类请求留在 \texttt{b 1b} 上，轨迹中 EPC 等于该分支。
+两种程序都在写回级采样，被打断的均为当时正要写回的那条指令。
 
 \begin{figure}[H]
 \centering
@@ -438,26 +440,26 @@ IP0 要等这拍写入之后才参与 \texttt{int\_req}，因此被打断的不�
 \caption{软件中断。IP0 抬高后 \texttt{int\_req} 出现一拍，写回 PC 转到 \texttt{0xbfc00380}。}
 \end{figure}
 
-时钟中断把 Count 清 0、Compare 写成 80，然后执行 \texttt{b 1b; nop}。
-TI 先变 1，IP7 和 \texttt{int\_req} 晚一拍。第 342 拍写回的是 \texttt{0xbfc000c8}，即延迟槽里的 \texttt{nop}。
-下一拍 Cause 为 \texttt{0xc0008000}：位 31 的 BD 为 1，位 30 的 TI 为 1，IP7 为 1，ExcCode 为 0。
-BD 为 1 时 EPC 取受害指令的前一条，所以 EPC 是分支 \texttt{0xbfc000c4}，而不是槽内的 \texttt{nop}。
-Status 同时为 \texttt{0x0040ff03}。处理程序把 Compare 写成全 1 来清 TI。
-它 \texttt{ERET} 的下一拍 Cause 变成 \texttt{0x80000000}：BD 还留着，TI 和 IP7 已经是 0，EPC 被指到 \texttt{0xbfc000cc}。
+时钟中断先将 Count 清 0、Compare 写成 80，再执行 \texttt{b 1b; nop}。
+TI 先变 1，IP7 与 \texttt{int\_req} 晚一拍。第 342 拍写回 \texttt{0xbfc000c8}，即延迟槽里的 \texttt{nop}。
+下一拍 Cause 为 \texttt{0xc0008000}：BD、TI、IP7 均为 1，ExcCode 为 0。
+BD 为 1 时 EPC 记前一条指令，此处为分支 \texttt{0xbfc000c4}；槽内 \texttt{nop} 的 PC 是 \texttt{0xbfc000c8}。
+此时 Status 为 \texttt{0x0040ff03}。处理程序把 Compare 写成全 1 以清除 TI。
+\texttt{ERET} 的下一拍 Cause 变为 \texttt{0x80000000}：BD 仍保留，TI 与 IP7 已为 0，EPC 被改到 \texttt{0xbfc000cc}。
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{fig/timer_int.png}
-\caption{时钟中断。TI 先于 \texttt{int\_req} 变 1。受害指令在延迟槽，EPC 是前面的分支。}
+\caption{时钟中断。TI 先于 \texttt{int\_req} 变 1。被打断的是延迟槽里的 \texttt{nop}，EPC 是前面的分支。}
 \end{figure}
 
 \texttt{soc\_lite\_top} 在功能测试里把 \texttt{hw\_int[5:0]} 接成 0，
 \texttt{func\_lab9} 因此不会从引脚上进入硬件中断。
-定向程序跑到 \texttt{0xbfc000cc} 的分支后，testbench 把 \texttt{hw\_int[0]} 拉高。
-IP2 比引脚晚一拍，\texttt{int\_req} 跟着 IP2。第 376 拍写回 PC 就是这条分支。
-下一拍 Cause 为 \texttt{0x00000400}，位 10 是 IP2，ExcCode 和 BD 都是 0，因此 EPC 等于受害指令本身 \texttt{0xbfc000cc}。
-Status 为 \texttt{0x0040ff03}。处理程序把 Status 写成 \texttt{0x00400000}，IE 关掉，EPC 写成结束循环 \texttt{0xbfc000d4}。
-\texttt{ERET} 之后停在这个循环，\texttt{0x80000014} 为 \texttt{0x55}。仿真打印 \texttt{----WAVE PASS!!!----}。
+定向程序执行到 \texttt{0xbfc000cc} 的分支后，testbench 将 \texttt{hw\_int[0]} 拉高。
+IP2 比引脚晚一拍，\texttt{int\_req} 随 IP2 置位。第 376 拍写回 PC 即该分支。
+下一拍 Cause 为 \texttt{0x00000400}，位 10 为 IP2，ExcCode 与 BD 均为 0，EPC 等于分支本身 \texttt{0xbfc000cc}。
+Status 为 \texttt{0x0040ff03}。处理程序把 Status 写成 \texttt{0x00400000} 以关闭 IE，并把 EPC 写成 \texttt{0xbfc000d4}。
+\texttt{ERET} 后程序停在该循环；\texttt{0x80000014} 为 \texttt{0x55}，仿真输出 \texttt{----WAVE PASS!!!----}。
 
 \begin{figure}[H]
 \centering
@@ -467,76 +469,75 @@ Status 为 \texttt{0x0040ff03}。处理程序把 Status 写成 \texttt{0x0040000
 
 \subsection{记忆游戏}
 \label{sec:game}
-记忆游戏的源程序在 \texttt{lab3/lab9/memory\_game}。
-\texttt{memory\_game()} 先把灯写成 \texttt{0xffff}，用 confreg 计时器做随机种子，然后反复做四件事：
-等一次按键，用 \texttt{my\_rand} 产生 8 个图案，把图案显示出来，再读 8 次按键并打分。
+记忆游戏源程序位于 \texttt{lab3/lab9/memory\_game}。
+\texttt{memory\_game()} 先把灯写成 \texttt{0xffff}，用 confreg 计时器作随机种子，然后循环四步：
+等待按键，用 \texttt{my\_rand} 产生 8 个图案并显示，再读入 8 次按键并计分。
 每个图案是 1、2、4、8 中的一个。
 显示时 \texttt{SOC\_LED} 写成 \texttt{\textasciitilde pattern[i]}，所以图案 8、4、2、1 对应的灯是
 \texttt{0xfff7}、\texttt{0xfffb}、\texttt{0xfffd}、\texttt{0xfffe}。
-读键时 \texttt{getUserPress} 取 \texttt{SOC\_BTN\_KEY[15:12]} 再把这四位反过来。
-扫描到的键码 \texttt{0x1000}、\texttt{0x2000}、\texttt{0x4000}、\texttt{0x8000} 因此读回来是 8、4、2、1。
-每采样到一次按键，程序立刻把灯写成 \texttt{\textasciitilde pb}，松开后再写回 \texttt{0xffff}。
+读键时 \texttt{getUserPress} 读取 \texttt{SOC\_BTN\_KEY[15:12]} 并反序这四位。
+扫描得到的 \texttt{0x1000}、\texttt{0x2000}、\texttt{0x4000}、\texttt{0x8000} 读回后对应 8、4、2、1。
+每采样到一次按键，程序随即把灯写成 \texttt{\textasciitilde pb}，松开后恢复 \texttt{0xffff}。
 \texttt{displayScore} 数 \texttt{pattern[i]==keys[i]} 的个数。
 \texttt{SOC\_NUM} 的高字节是已经猜过的次数，低字节是得分；
 八次全对时 \texttt{SOC\_LED\_RG1} 写 1，否则写 2，\texttt{SOC\_LED\_RG0} 写 1。
 
-仿真时钟和计时器时钟都是 100\,MHz，\texttt{CPU\_COUNT\_PER\_US} 是 100。
-按源程序的毫秒延时，一轮要十几秒仿真时间。
-\texttt{confreg} 只在定义了 \texttt{SIM\_FAST\_IO} 时把计时器每次加 5000，并把按键去抖改到 \texttt{key\_count[5]}。
-游戏二进制没有改。\texttt{SIM\_FAST\_IO} 只由记忆游戏的仿真脚本定义，\texttt{func\_lab9} 的计时器仍是每拍加 1。
-数据 RAM 从 0 开始。\texttt{my\_srand} 在出题前把种子写好，图案和按键都放在栈上。
+仿真时钟与计时器时钟均为 100\,MHz，\texttt{CPU\_COUNT\_PER\_US} 为 100。
+按源程序的毫秒级延时，完整一轮需要十余秒仿真时间。
+仅在定义 \texttt{SIM\_FAST\_IO} 时，\texttt{confreg} 把计时器每拍加 5000，并将按键去抖阈值改到 \texttt{key\_count[5]}。
+游戏二进制未改；该宏只由记忆游戏仿真脚本打开，\texttt{func\_lab9} 的计时器仍每拍加 1。
+数据 RAM 自 0 起编；\texttt{my\_srand} 在出题前写入种子，图案与按键数组放在栈上。
 
-testbench 先按一次键让游戏进入出题，再按灯的跳变记下 8 个图案，然后用同样的顺序回放。
-目标列被扫描到时把按键行拉成 \texttt{0111}，其余列保持松开。
-程序按刚读到的键把灯点亮后，testbench 核对这盏灯就是刚才那个图案，再松开，等灯回到 \texttt{0xffff} 后按下一次。
+testbench 先按一次键进入出题，再根据灯的变化记录 8 个图案，并按相同顺序回放。
+目标列被扫描到时将按键行拉成 \texttt{0111}，其余列保持松开。
+程序按读到的键点亮灯后，testbench 核对与当前图案是否一致，再松开并等待灯回到 \texttt{0xffff}，然后按下一步。
 
-这一轮的图案是 8、8、1、2、8、2、8、2。
-八次按键点亮的灯是 \texttt{fff7}、\texttt{fff7}、\texttt{fffe}、\texttt{fffd}、\texttt{fff7}、\texttt{fffd}、\texttt{fff7}、\texttt{fffd}。
-低四位里被点亮的那一位正好是图案 8、8、1、2、8、2、8、2，出题的灯和按键点亮的灯逐格相同。
+本轮出题图案依次为 8、8、1、2、8、2、8、2。
+八次按键后，灯依次为 \texttt{fff7}、\texttt{fff7}、\texttt{fffe}、\texttt{fffd}、\texttt{fff7}、\texttt{fffd}、\texttt{fff7}、\texttt{fffd}，
+与出题时写入 \texttt{SOC\_LED} 的值一一对应。
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{fig/game_match.png}
-\caption{八步里出题时的灯和按键点亮的灯。点亮的圆点是 \texttt{SOC\_LED} 低四位中为 0 的那一位。}
+\caption{出题时的灯和按键之后的灯。圆点是 \texttt{SOC\_LED} 低四位里为 0 的那一位。}
 \end{figure}
 
-\texttt{detectKeyPresses} 每读到一次就把 \texttt{SOC\_NUM} 写成猜测次数左移 24 位，八次之后是 \texttt{0x08000000}。
-\texttt{displayScore} 再按位或上得分。八格都相同，得分是 8，结果为 \texttt{0x08000008}。
-\texttt{led\_rg0} 为 1。得分等于 8 时 \texttt{led\_rg1} 为 1。仿真打印 \texttt{----GAME PASS!!!----}。
+\texttt{detectKeyPresses} 每读到一次键，就把已猜次数左移 24 位写进 \texttt{SOC\_NUM}。八次之后这个值是 \texttt{0x08000000}。
+\texttt{displayScore} 再把得分合进去。八次按键都和出题相同，得分是 8，数码管上是 \texttt{0x08000008}。
+\texttt{led\_rg0} 为 1，\texttt{led\_rg1} 也为 1。仿真打印 \texttt{----GAME PASS!!!----}。
 
-出题从第 2 盏灯起，相邻两次亮灯间隔都是 16148 拍。
-\texttt{delay(800)} 在计时器每拍加 5000 时要等 \(800\times 100\times 100/5000=16000\) 拍，
-多出的 148 拍是写灯和循环本身。第一段间隔是 8132 拍，接近 \texttt{delay(400)} 的 8000 拍。
-\texttt{delay} 先写 \texttt{SOC\_TIMER=0}，清零脉冲比紧跟着的第一次读晚几拍。
-这一次读到的若仍是上次留下的大数，循环马上结束，清零要到下一次 \texttt{delay} 才起作用。
-因此 \texttt{delay(800)} 和 \texttt{delay(400)} 交替成为真正的等待，亮灯间隔就在 16148 拍和 8132 拍之间换。
-回放里也能看到同一现象：按下到灯按这个键点亮是 76～112 拍，这是去抖后的列扫描；
-灯点亮到下一次按下则在 8076 拍和 60 拍之间交替，8076 拍就是一次完整的 \texttt{delay(400)}。
-间隔变短没有改掉读到的键，八次按键点亮的灯仍与出题一致。
+从第 2 盏灯开始，相邻两次亮灯相隔 16148 拍。
+计时器每拍加 5000 时，\texttt{delay(800)} 需要 \(800\times 100\times 100/5000=16000\) 拍，
+另外 148 拍用在写灯和循环上。第一段间隔是 8132 拍，与 \texttt{delay(400)} 的 8000 拍接近。
+\texttt{delay} 先把 \texttt{SOC\_TIMER} 写成 0，而清零生效比紧随其后的第一次读晚几拍。
+若读到的仍是上次留下的大数，等待循环立刻结束，本次清零要到下一次 \texttt{delay} 才起作用。
+于是 \texttt{delay(800)} 与 \texttt{delay(400)} 交替承担等待，亮灯间隔在 16148 拍与 8132 拍间切换。
+玩家按下后，灯经 76～112 拍才按该键点亮，对应去抖与列扫描。
+灯点亮至下一次按下，间隔在 8076 拍与 60 拍间交替，其中 8076 拍对应一次完整的 \texttt{delay(400)}。
+即使某次间隔偏短，八次按键点亮的灯仍与出题一致。
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{fig/game_timeline.png}
-\caption{出题时刻，以及回放时按下到灯点亮、灯点亮到下一次按下的拍数。}
+\caption{出题时刻，以及按下后等到灯点亮、再到下一次按下所用的拍数。}
 \end{figure}
 
-实验箱未接，按键和灯都走 confreg 的仿真模型，没有下载比特流。
+实验箱未接，按键与灯均经 confreg 仿真模型完成，未下载比特流。
 
 \section{实验收获}
-异常指令一进入执行级，就清掉排在它后面的指令，写回级才把 EXL、EPC 和 ExcCode 写入 CP0。
-如果等到写回级才清空流水线，\texttt{SYSCALL} 后面的 \texttt{sw} 会先写进数据 RAM。
-\texttt{MFC0} 比 ALU 晚两级才有结果，入口处 \texttt{mfc0} 紧挨 \texttt{bne} 时要按 load-use 停住译码，
-写回级再把 CP0 的读数前递出去。
-Cause 和 Status 的位域要和参考 CPU 一致：trace 比较的是 \texttt{MFC0} 的整字，
-多出来的 TI 或 IP 会在比较中直接报错。
-Count 隔拍加 1、IP7 比 TI 晚一拍之后，定时器和软件中断都发生在测试程序的原地循环 \texttt{b 1b} 上。
-EPC 等于该分支的 PC，处理程序加 8 后同时跳过这条分支和它的延迟槽。
-定向程序里，时钟中断打在延迟槽的 \texttt{nop} 上，BD 为 1，EPC 仍是前面的分支；
-硬件中断 0 打在分支本身上，IP2 比 \texttt{hw\_int[0]} 晚一拍。
-记忆游戏在仿真里走完一轮：八次按键点亮的灯与出题的灯一致，数码管为 \texttt{0x08000008}，右侧双色灯为 1。
+异常指令进入执行级即清空后续指令，EXL、EPC 与 ExcCode 在写回级写入 CP0。
+若在写回级才清空流水线，\texttt{SYSCALL} 后的 \texttt{sw} 会抢先写入数据 RAM。
+\texttt{MFC0} 的结果比 ALU 晚两级，入口处理程序里 \texttt{mfc0} 紧挨 \texttt{bne} 时需按 load-use 停顿译码，
+写回级再将 CP0 读数前递。
+Cause、Status 的位域须与参考 CPU 一致：轨迹比较 \texttt{MFC0} 整字，TI 或 IP 多置一位即会失配。
+Count 隔拍加 1，IP7 比 TI 晚一拍；定时器与软件中断测试多在原地循环 \texttt{b 1b} 上触发，
+EPC 等于分支 PC，处理程序加 8 后跳过该分支及其延迟槽。
+定向程序中，时钟中断打断延迟槽里的 \texttt{nop}，BD 为 1，EPC 仍记前一条分支；
+硬件中断 0 打断分支本身，IP2 比 \texttt{hw\_int[0]} 晚一拍。
+记忆游戏仿真一轮全对：八次按键后的灯与出题一致，数码管 \texttt{0x08000008}，右侧双色灯为 1。
 
 \section{附：源码目录}
-CPU 仍在实验1的工程里改。\texttt{lab3} 放测试程序、仿真脚本和本报告。
+CPU 仍在实验1工程内修改；\texttt{lab3} 目录存放测试程序、仿真脚本与本报告。
 \begin{itemize}
 \item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/cp0.v|
 \item \verb|lab1/lab3/CPU_CDE/mycpu_verify/rtl/myCPU/IF_stage.v|
