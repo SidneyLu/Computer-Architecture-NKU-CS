@@ -236,7 +236,14 @@ begin
     end
     else
     begin
+        // SIM_FAST_IO is defined only by the memory-game simulation.
+        // The binary is unchanged; the confreg timer advances faster so a
+        // millisecond delay does not take a millisecond of simulation time.
+`ifdef SIM_FAST_IO
+        timer <= timer + 32'd5000;
+`else
         timer <= timer + 1'b1;
+`endif
     end
 end
 
@@ -363,7 +370,11 @@ reg [19:0] key_count;
 reg [ 3:0] state_count;
 wire key_start = (state==3'b000) && !(&btn_key_row);
 wire key_end   = (state==3'b111) &&  (&btn_key_row);
+`ifdef SIM_FAST_IO
+wire key_sample= key_count[5];
+`else
 wire key_sample= key_count[19];
+`endif
 always @(posedge clk)
 begin
     if(!resetn)
