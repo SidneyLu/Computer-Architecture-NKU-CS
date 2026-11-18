@@ -43,11 +43,10 @@ GitHub仓库 & \parbox[t]{0.72\textwidth}{\raggedright\url{SidneyLu/Computer-Arc
 实验箱未连接，按说明跳过比特流生成与上板验证；功能正确性以 \texttt{func\_lab9} 的 trace 比对为准。
 
 \begin{enumerate}
-  \item 将 CPU 顶层改为类 SRAM 总线，在 \texttt{CPU\_CDE\_SRAM} 中完成带随机延迟的
-        \texttt{func\_lab9}。
+  \item 将 CPU 顶层改为类 SRAM 总线，在 \texttt{CPU\_CDE\_SRAM} 中通过随机延迟的 \texttt{func\_lab9}。
   \item 在 CPU 外侧完成类 SRAM 到 AXI 的封装，对外只保留一个 AXI 主端口，
-        在 \texttt{CPU\_CDE\_AXI} 中先通过固定延迟的 \texttt{func\_lab9}。
-  \item 修改 \texttt{RANDOM\_SEED}，使固定延迟、短延迟和长延迟均能通过同一套功能测试。
+        在 \texttt{CPU\_CDE\_AXI} 中先于固定设置下通过 \texttt{func\_lab9}。
+  \item 修改 \texttt{RANDOM\_SEED}，在固定、短、长三种设置下测试随机延迟，并均能通过同一套功能测试。
 \end{enumerate}
 
 AXI 侧信号按实验平台连接，整条总线按 AXI3 实现。
@@ -55,9 +54,9 @@ AXI 侧信号按实验平台连接，整条总线按 AXI3 实现。
 再经 SoC 的 \texttt{axi\_crossbar\_1x2} 按地址分到 confreg 与 RAM。
 
 \section{实验原理}
-类 SRAM 与 AXI 都将一次访问分为两个阶段：先确认从设备已接收地址，再等待读数据或写响应。
-其间可以插入任意个时钟周期的等待；CPU 逻辑只依赖握手完成，而不依赖固定的返回时钟周期数。
-取指口与数据口各自最多保留一条在途传输，须等上一次的 \texttt{data\_ok} 或 AXI 响应结束，才能发起下一次。
+类 SRAM 与 AXI 都把一次访问分成两步：先确认从设备收下地址，再拿到读数据或写完成响应。
+中间可以插入任意多个时钟周期的等待；CPU 只等握手完成，不要求固定几个时钟周期返回。
+取指口和数据口各自最多一条在途传输，须等上一次 \texttt{data\_ok} 或 AXI 响应结束，才能再发请求。
 
 \subsection{类 SRAM 的两段握手}
 取指口和数据口使用同一组信号。主设备给出请求和访问内容，从设备分两次握手回应。
@@ -103,12 +102,12 @@ assign data_ok = data_and && (!buf_empty || ram_en_r);
 块 RAM 的读数据在这之后才随 \texttt{data\_ok} 送出。
 同一次 RAM 请求的 \texttt{data\_ok} 因此比它的 \texttt{addr\_ok} 延迟至少一个时钟周期。
 
-桥用
+桥按下式判断 confreg 是否命中（掩码去掉地址 [31:29]，\texttt{0xbfafxxxx} 与 \texttt{0x1fafxxxx} 等价）：
 \begin{verbatim}
 wire hit_conf = (cpu_data_addr & 32'h1fff0000) == 32'h1faf0000;
 \end{verbatim}
-选择 confreg。掩码去掉了地址的 [31:29]，所以程序里的 \texttt{0xbfafxxxx} 和物理地址 \texttt{0x1fafxxxx} 都命中。
-其余地址进数据 RAM。\texttt{func\_lab9} 的取指地址是 \texttt{0xbfc00000} 起的 kseg1 地址，指令口不做这层判断。
+命中则访问 confreg，其余地址进数据 RAM。
+\texttt{func\_lab9} 取指走 \texttt{0xbfc00000} 起的 kseg1，不经此桥。
 
 桥在 \texttt{addr\_ok} 为 1 的时钟周期将选中的从设备记入 \texttt{sel\_conf\_reg}；
 后续的 \texttt{data\_ok} 与 \texttt{rdata} 均从该侧返回。
@@ -135,9 +134,9 @@ wire es_mem_go = es_valid && !es_ex_f && (es_mem_op != `MEM_NONE);
 \texttt{data\_ok} 把读数据写入 \texttt{load\_buf}，访存级之后使用这份锁存。
 在执行级就已经确定异常的指令不会进入 \texttt{D\_REQ}，因此 \texttt{SYSCALL} 后面被取消的 \texttt{sw} 不会出现在数据口上。
 
-清空流水线时按请求有没有被接受分开处理。
-还停在请求态、该时钟周期又没有 \texttt{addr\_ok} 时，取指直接改地址，访存回到 \texttt{D\_IDLE}。
-已经接受、\texttt{data\_ok} 尚未回来时，取指把 \texttt{kill} 置 1，访存进入 \texttt{D\_DROP}。
+清空流水线时，按请求是否已被接受分开处理。
+尚在请求态且本时钟周期没有 \texttt{addr\_ok} 时，取指改地址，访存回到 \texttt{D\_IDLE}。
+已经接受而 \texttt{data\_ok} 尚未返回时，取指置 \texttt{kill}，访存进入 \texttt{D\_DROP}。
 两者都把这次返回丢掉，从设备侧仍然是一次接受对应一次 \texttt{data\_ok}。
 写回级还没给出入口、执行级已经取消后续指令时，取指停在 \texttt{S\_HOLD}，有了入口地址再发请求。
 
@@ -152,22 +151,19 @@ assign ds_ready_go = ~load_use && ~mfc_use && ~wait_bd;
 送入下一条的 BD 位来自当前译码级中的转移指令。带 BD 的异常处理沿用实验 3，EPC 为异常指令 PC 减 4。
 
 \subsection{随机延迟只作用在握手上}
-\texttt{confreg} 在仿真复位期间用 \texttt{RANDOM\_SEED} 装入 23 位线性反馈移位寄存器，
-每个时钟周期做 \texttt{\{reg[21:0], reg[22]\^{}reg[17]\}}。
-复位保持一个时钟周期以上后，种子的低位锁存成两种模式，高 7 位为 \texttt{7'b1010101}。
-低 16 位为 \texttt{16'h00FF} 时 \texttt{no\_mask} 为 1。
-此时低 8 位也是 \texttt{8'hFF}，\texttt{short\_delay} 同为 1，
-但 \texttt{no\_mask} 把五位掩码或成 1，握手信号保持为 1，这是固定延迟。
-低 8 位为 \texttt{8'hFF} 且 \texttt{no\_mask} 为 0 时，是短延迟。
-两个标志都为 0 时，是长延迟。
+任务三通过改写宏 \texttt{RANDOM\_SEED} 检查随机延迟。后文统一称写入 \texttt{confreg} 的 23 位初值为种子（高 7 位取 \texttt{7'b1010101}，低 16 位在仿真前改写），称固定、短、长三种掩码工作方式为设置（由复位结束时锁存的 \texttt{no\_mask}、\texttt{short\_delay} 决定），称类 SRAM 顶层、AXI 转接桥封装、原生 AXI 为三个实验组。
 
-掩码的每一位由移位寄存器的若干位经与、异或组合后再与模式相与得到。
-短延迟模式下，额外的异或项被 \texttt{short\_delay} 旁路，该位更容易为 1；
-长延迟则保留该项，取值为 1 的时钟周期更少；固定延迟用 \texttt{no\_mask} 将五位掩码强制为 1。
+\texttt{confreg} 在复位期间装入种子，驱动 23 位线性反馈移位寄存器逐时钟周期推进。
+复位保持一个时钟周期以上后，从种子低位得到两个标志：低 16 位为 \texttt{16'h00FF} 时 \texttt{no\_mask} 为 1；低 8 位为 \texttt{8'hFF} 时 \texttt{short\_delay} 为 1。
+据此，种子低 16 位 \texttt{16'h00FF} 对应固定设置，\texttt{no\_mask} 把五位掩码或成 1；\texttt{16'h01FF} 对应短设置，\texttt{short\_delay} 为 1 而 \texttt{no\_mask} 为 0；\texttt{16'h0000} 对应长设置，两个标志都为 0。
+
+五位掩码 \texttt{ram\_random\_mask} 由移位寄存器当前状态和上述两个标志共同给出。
+固定设置下掩码恒为 1，握手只受接口协议本身约束。
+短设置和长设置下掩码会随移位寄存器变化；长设置对掩码位的约束更紧，掩码为 0 的时钟周期更多，握手需要多等。
 
 类 SRAM 的指令包装使用掩码低两位，数据 RAM 包装使用其上的两位；
 在同一侧内，较高位控制 \texttt{addr\_ok}，较低位控制 \texttt{data\_ok}。
-环境自带的短延迟种子，低 16 位是 \texttt{16'h01FF}。
+环境默认种子的低 16 位是 \texttt{16'h01FF}，对应短设置。
 confreg 不经过这组掩码。
 
 AXI 的 \texttt{axi\_wrap\_ram} 使用全部 5 位：bit 4 到 bit 0 依次作用在 AR、R、AW、W、B 上。
@@ -175,17 +171,25 @@ AR、AW、W 在 \texttt{valid} 置 1 之后把对应的 \texttt{*\_nomask} 置 1
 这段时间里 \texttt{valid} 由该保持位维持为 1。
 R、B 每个时钟周期与掩码相与，\texttt{rvalid}、\texttt{bvalid} 可以在相邻两个时钟周期之间变为 0。
 功能测试未定义 \texttt{RUN\_PERF\_TEST}，故 \texttt{axi\_wrap\_ram} 启用上述随机掩码。
-工程里保存的种子是 \texttt{\{7'b1010101,16'h00FF\}}，即固定延迟。
-短延迟和长延迟各仿真一次，结束后把种子改回这个值。
+工程里保存的种子是 \texttt{\{7'b1010101,16'h00FF\}}，对应固定设置。
+三种设置下的仿真安排和通过情况见实验结果。
 
-定时器和软件中断看的是 \texttt{mtc0} 写入的 Count、Compare。
-多出来的等待改变触发所在的时钟周期，被打断的仍是测试程序里的原地循环 \texttt{b 1b} 或其延迟槽 \texttt{nop}。
-EPC 指向这条循环，处理程序再加 8。
-trace 比较写回的 PC 和寄存器，所以三种延迟的轨迹一致。
+\subsection{AXI 协议在本实验中的体现}
+AXI 把一次访问拆到若干条通道上。读事务走读地址通道 AR 和读数据通道 R，写事务走写地址通道 AW、写数据通道 W 和写响应通道 B。每条通道单独握手：源端保持 \texttt{valid} 以及该通道上的地址或数据，直到 \texttt{ready} 为 1；两者同时为 1 的时钟周期，这一次传递完成。
+
+读和写占用不同的通道，所以一笔读事务和一笔写事务可以同时进行。每笔事务带有 ID，从设备在 R 或 B 上送回同一个 ID，主设备据此把响应交还给发出它的那一路。\texttt{rlast} 和 \texttt{wlast} 标出这笔事务的数据已经传完。
+
+本实验对外是 AXI3，地址和数据都是 32 位。类 SRAM 的一次访问对应总线上的一次数据传递：读的时候 \texttt{rlast} 为 1，写的时候 \texttt{wlast} 为 1。\texttt{arlock}、\texttt{awlock}、\texttt{cache}、\texttt{prot} 和 QoS 接 0。功能测试里从设备返回 OKAY，状态机按 \texttt{valid} 与 \texttt{ready} 推进。写数据通道上的 \texttt{wid} 留在顶层端口。
+
+\subsection{类 SRAM 接口与 AXI 的关系}
+类 SRAM 是 CPU 核上的接口，信号为一组 \texttt{req}、\texttt{wr}、\texttt{size}、\texttt{addr}、\texttt{wdata} 和 \texttt{addr\_ok}、\texttt{data\_ok}、\texttt{rdata}。地址在 \texttt{addr\_ok} 为 1 时被收下，读数据或写完成在 \texttt{data\_ok} 为 1 时交还。同一端口上读和写共用这组信号，同时只保留一条在途访问。它没有 AR、R、AW、W、B 五条通道，也没有事务 ID。因此类 SRAM 不是 AXI 的一种简化命名，实验里也不另设称为类 AXI 的总线。
+
+一次类 SRAM 访问和一笔 AXI 事务的对应，由转接桥来做。流水级继续用任务一的状态机，\texttt{sram2axi} 把一次 \texttt{req} 到 \texttt{data\_ok} 收成一笔 AXI3 事务：读走 AR 和 R，写走 AW、W 和 B。\texttt{addr\_ok} 在转换器收下请求的那个时钟周期为 1，\texttt{arvalid} 或 \texttt{awvalid} 再延迟一个时钟周期。\texttt{mycpu\_top} 引出的已经是 AXI 主端口，SoC 上的 Crossbar、\texttt{axi\_ram} 和 confreg 按 AXI 接收。
+
+原生实现去掉这层转接。取指级直接驱动 AR 和 R，执行级直接驱动 AR/R 或 AW/W/B，核内不再出现 \texttt{req} 与 \texttt{data\_ok}。对外仍是同一个 AXI3 主端口，ID 的用法与转接桥相同。两种实现的差别在于五条通道由转换器驱动还是由流水级驱动。
 
 \subsection{AXI 的五个通道}
-AXI 把一次读或写拆到独立的通道上。某个通道在 \texttt{valid} 与 \texttt{ready} 同时为 1 的时钟周期完成传递，
-源端在此之前保持 \texttt{valid} 和通道上的地址、数据。
+下表列出五条通道在本设计中的方向和用法。通道在 \texttt{valid} 与 \texttt{ready} 同时为 1 时完成传递，在此之前源端保持 \texttt{valid} 以及地址或数据。
 
 \begin{center}
 \small
@@ -193,7 +197,7 @@ AXI 把一次读或写拆到独立的通道上。某个通道在 \texttt{valid} 
 \toprule
 通道 & 方向 & 本设计的用法 \\
 \midrule
-AR & 主$\to$从 & 读地址。\texttt{arlen}=0，\texttt{arburst}=\texttt{2'b01} \\
+AR & 主$\to$从 & 读地址，\texttt{arburst}=\texttt{2'b01} \\
 R & 从$\to$主 & 一次读数据，\texttt{rlast}=1 \\
 AW & 主$\to$从 & 写地址，与 W 同时发出 \\
 W & 主$\to$从 & 写数据和 \texttt{wstrb}，\texttt{wlast}=1 \\
@@ -202,34 +206,29 @@ B & 从$\to$主 & 写响应。握手所在时钟周期产生 \texttt{data\_ok} \
 \end{tabular}
 \end{center}
 
-\texttt{arburst} 为 \texttt{2'b01} 表示 INCR。长度为 0，所以一次事务只有一次数据传输。
-\texttt{arsize}、\texttt{awsize} 由类 SRAM 的 \texttt{size} 在高位补 0 得到，
-\texttt{wstrb} 原样传入。从设备在握手完成时返回 OKAY。
-转换器看 \texttt{valid}、\texttt{ready} 和 \texttt{rlast} 推进状态，不按 \texttt{rresp}、\texttt{bresp} 分支。
+AR 的 \texttt{arburst} 接 \texttt{2'b01}，即 INCR。
+\texttt{arsize}、\texttt{awsize} 由类 SRAM 的 \texttt{size} 在高位补 0 得到，\texttt{wstrb} 原样送出。
+从设备握手时返回 OKAY。转换器根据 \texttt{valid}、\texttt{ready} 和 \texttt{rlast} 决定进入下一状态的时刻。
 
 \subsection{一次类 SRAM 访问对应一次 AXI 事务}
-核心仍按任务一使用类 SRAM 接口。
-任务二在 \texttt{mycpu\_core} 外增设 \texttt{sram2axi}，将两段握手映射到 AXI 五通道，
-而不在流水级内直接驱动各通道的 \texttt{valid}、\texttt{ready}。
-取指与数据各一例化一份转换器；每份内部同时只承载一条 AXI3 事务，状态互不影响。
+流水级仍然只看见类 SRAM。\texttt{sram2axi} 放在 \texttt{mycpu\_core} 外面，把 \texttt{addr\_ok} 与 \texttt{data\_ok} 这两段握手接到五条通道上。取指和数据各有一份转换器，每份同时只做一笔事务，两份的状态互不影响。
 
-空闲且 \texttt{req} 为 1 时，\texttt{addr\_ok} 在该时钟周期为 1，同时把 \texttt{size}、\texttt{wstrb}、\texttt{addr}、\texttt{wdata} 锁进寄存器。
-下一时钟周期 CPU 的 \texttt{req} 为 0，转换器也已离开空闲，\texttt{addr\_ok} 随之变 0。
-后面的 AR、AW、W 都使用锁存值，CPU 随后改变地址不会改写已经发出的事务。
+转换器空闲且 \texttt{req} 为 1 时，同一时钟周期给出 \texttt{addr\_ok}，并把 \texttt{size}、\texttt{wstrb}、\texttt{addr}、\texttt{wdata} 锁存下来。
+下一时钟周期 CPU 拉低 \texttt{req}，转换器离开空闲，\texttt{addr\_ok} 回到 0。
+此后 AR、AW、W 都用锁存值，CPU 再改地址也不会改到已经发出的事务。
 
-读请求进入 \texttt{A\_AR}，只拉高 \texttt{arvalid}。\texttt{arready} 之后进入 \texttt{A\_R}，拉高 \texttt{rready}。
-\texttt{rvalid}、\texttt{rready}、\texttt{rlast} 同时为 1 的时钟周期 \texttt{data\_ok} 为 1。
-读数据取该时钟周期的 \texttt{rdata}，然后回到空闲。
+读请求进入 \texttt{A\_AR}，拉高 \texttt{arvalid}。\texttt{arready} 到来后进入 \texttt{A\_R}，拉高 \texttt{rready}。
+\texttt{rvalid}、\texttt{rready}、\texttt{rlast} 同时为 1 的时钟周期，\texttt{data\_ok} 为 1，\texttt{rdata} 在这一时钟周期被取走，然后回到空闲。
 
-写请求进入 \texttt{A\_WRITE}，\texttt{awvalid} 和 \texttt{wvalid} 同时为 1。
-两个通道各自用 \texttt{aw\_done}、\texttt{w\_done} 记住是否已经握手。先完成的那个 \texttt{valid} 拉低，避免同一通道被再握手一次。
-两个都完成后进入 \texttt{A\_WRESP}。\texttt{bvalid} 与 \texttt{bready} 同时为 1 的时钟周期 \texttt{data\_ok} 为 1，再回到空闲。
-\texttt{arid}、\texttt{awid}、\texttt{wid} 固定为 0。\texttt{arlock}、\texttt{awlock}、\texttt{cache} 和 \texttt{prot} 固定为 0。
+写请求进入 \texttt{A\_WRITE}，\texttt{awvalid} 和 \texttt{wvalid} 一起拉高。
+\texttt{aw\_done} 和 \texttt{w\_done} 分别记下两个通道是否已经握手，先完成的那一路把 \texttt{valid} 拉低，握手只发生一次。
+两路都完成后进入 \texttt{A\_WRESP}。\texttt{bvalid} 与 \texttt{bready} 同时为 1 时 \texttt{data\_ok} 为 1，随即回到空闲。
+\texttt{arid}、\texttt{awid}、\texttt{wid} 以及 \texttt{arlock}、\texttt{awlock}、\texttt{cache}、\texttt{prot} 都接 0。
 
 \subsection{原生 AXI 接口}
 原生 AXI 指流水级直接驱动五条通道，完成条件就是通道握手，核内不另设类 SRAM 的 \texttt{req} 与 \texttt{data\_ok}。
 取指级需要下一条指令时拉高 \texttt{arvalid}，
-地址、长度为 0 的 INCR 突发和 \texttt{arid} 保持到 \texttt{arready}。
+地址和 \texttt{arid} 保持到 \texttt{arready}。
 随后拉高 \texttt{rready}，在 \texttt{rvalid} 与 \texttt{rlast} 同时为 1 的时钟周期把 \texttt{rdata} 锁进 \texttt{fs\_inst}。
 访存级对 load 走同一套 AR/R；对 store 同时拉高 \texttt{awvalid} 与 \texttt{wvalid}，两通道各自握手后再等 \texttt{bvalid}。
 执行级在 R 或 B 完成之前 \texttt{es\_ready\_go} 为 0，与现在停在 \texttt{D\_WAIT} 的作用相同。
@@ -260,20 +259,15 @@ AXI 通道的宿主 & 核外两份 \texttt{sram2axi} & \texttt{IF\_stage} 与 \t
 \end{tabular}
 \end{center}
 
-默认综合采用前一列。任务一已经按类 SRAM 通过随机延迟，任务二的单主端口由封装接出。
+默认综合采用前一列。任务一已在类 SRAM 上通过随机延迟，任务二的单主端口由封装接出。
 
-取指级另写为 \texttt{if\_stage\_axi}。
-
-访存级另写为 \texttt{exe\_stage\_axi}。
-
-\texttt{mycpu\_core\_axi} 接上原来的译码、访存和写回。
-宏 \texttt{NATIVE\_AXI} 改用这套核里的 AXI 状态机。
-取指级直接驱动 AR/R，访存级直接驱动 AR/R 或 AW/W/B。
-两路仍进入同一个 \texttt{axi\_crossbar\_2x1}，线程 ID 仍为 0，基址 ID 仍是 0 和 8。
-两种接口发出的都是单次 INCR，写回的 PC 和寄存器由指令语义决定。
-封装多出的是 \texttt{addr\_ok} 之后进入 \texttt{A\_AR} 或 \texttt{A\_WRITE} 的一个时钟周期；
-从设备给出 \texttt{arready}、\texttt{rvalid} 或 \texttt{bvalid} 的等待，原生接口同样要付出。
-固定延迟下的 94 点时间和通道时序见实验结果。该宏不写入工程默认设置，默认仿真仍是封装加 Crossbar。
+原生路径另写 \texttt{if\_stage\_axi} 与 \texttt{exe\_stage\_axi}，组成 \texttt{mycpu\_core\_axi}，仍接原译码、访存、写回。
+宏 \texttt{NATIVE\_AXI} 打开后，流水级直接驱动通道。
+两路仍进同一颗 \texttt{axi\_crossbar\_2x1}，线程 ID 为 0，基址 ID 仍为 0 和 8。
+两种做法的写回都由指令语义决定。
+封装在 \texttt{addr\_ok} 与通道 \texttt{valid} 之间多延迟一个时钟周期；从设备侧的等待两种路径都要承受。
+固定设置下的时间与通道对照见实验结果。
+\texttt{NATIVE\_AXI} 不写入工程默认宏，日常仿真仍走转接桥加 Crossbar。
 
 \subsection{为何采用 Crossbar}
 任务二要求 CPU 对外只呈现一个 AXI 主端口，而 \texttt{mycpu\_core} 在任务一中已是取指、访存两条独立的类 SRAM 主口。
@@ -283,13 +277,13 @@ AXI 通道的宿主 & 核外两份 \texttt{sram2axi} & \texttt{IF\_stage} 与 \t
 两路同时需要读地址时缺乏规范的仲裁与反压，取指与访存会互相阻塞对方的 \texttt{arready}；
 写通道与读通道在 AXI 上本就分离，简单合并难以在保持单次传输的事务语义的同时允许取指读与数据写并行推进。
 
-因此采用两颗 Crossbar，把「核内两主合一」与「SoC 内按地址分从设备」分开实现。
+因此用两颗 Crossbar 分工：核外 \texttt{2$\times$1} 合并取指与数据，SoC 内 \texttt{1$\times$2} 按地址选从设备。
 核外的 \texttt{axi\_crossbar\_2x1} 把两份 \texttt{sram2axi} 合成一路主端口：
 S00 接取指、S01 接数据，并为两路配置不同的仲裁优先级与基址 ID，使 R/B 能按 ID 回到发起事务的那一侧。
 SoC 上原有的 \texttt{axi\_crossbar\_1x2} 则按地址窗口把该主端口的事务送到 confreg 或 \texttt{axi\_ram}，
 与实验平台提供的顶层结构一致，避免在自写转接桥里重复实现设备译码。
 早期亦可用转接桥内部轮询合并两路；功能上能通过 \texttt{func\_lab9}，但仲裁与流水细节都挤在桥内，且与平台 Crossbar 的仿真路径不一致。
-改为 IP Crossbar 后，固定延迟下到达第 94 点的时间约增加 4.8\,ms，写回 trace 仍为 94/94，
+改为 IP Crossbar 后，固定设置下到达第 94 点的时间约增加 4.8\,ms，写回 trace 仍为 94/94，
 说明多出的时钟周期来自 Crossbar 的寄存与仲裁，而非功能错误。
 
 \subsection{两路并成一个主端口}
@@ -308,12 +302,10 @@ Crossbar 给 S00 的基址 ID 为 0，给 S01 的基址 ID 为 8。
 
 1$\times$2 负责设备译码。confreg 有两段 16 位窗口，基址为 \texttt{0x1faf0000} 和 \texttt{0xbfaf0000}。
 RAM 的窗口为 22 位，其中包括 \texttt{0x1fc00000} 和程序实际取指用的 \texttt{0xbfc00000}。
-CPU 顶层的 \texttt{arlen}、\texttt{awlen} 是 8 位，Crossbar 主端口的长度是 4 位，连接时高 4 位补 0。
 顶层保留 \texttt{wid}，即 AXI3 写数据通道上的 ID。
 
 \subsection{和 AXI4 的差别}
-CPU 经 \texttt{sram2axi} 只发起单次 INCR 突发（\texttt{arlen}=0，lock 为 0，\texttt{wlast}=1），
-在 AXI4 下同样合法。
+CPU 经 \texttt{sram2axi} 发起的事务在 AXI4 下同样合法，lock 接 0，\texttt{wlast} 为 1。
 SoC 端口宽度按 AXI3 例化，两颗 Crossbar 的协议选项亦为 AXI3。
 
 \begin{center}
@@ -323,7 +315,6 @@ SoC 端口宽度按 AXI3 例化，两颗 Crossbar 的协议选项亦为 AXI3。
 信号 & 本设计（AXI3） & AXI4 标准 \\
 \midrule
 \texttt{wid} & 有，4 位 & 写数据不再带独立 ID \\
-\texttt{arlen}、\texttt{awlen} & 事务长度为 0，端口低 4 位 & 8 位，最长 256 次数据传输 \\
 \texttt{arlock}、\texttt{awlock} & 2 位，驱动为 0 & 1 位 \\
 \texttt{arqos}、\texttt{awqos} & 从端口接 0，主端口不引出 & 接口上有这 4 位 \\
 \bottomrule
@@ -331,30 +322,24 @@ SoC 端口宽度按 AXI3 例化，两颗 Crossbar 的协议选项亦为 AXI3。
 \end{center}
 
 \section{实验过程}
-\texttt{lab10.zip} 与 \texttt{lab11.zip} 分别提供类 SRAM 与 AXI 验证环境。
-将实验 3 的 \texttt{func\_lab9} 复制到两边的 \texttt{soft/func\_lab9}，
-并把 \texttt{inst\_ram}、\texttt{axi\_ram} 的 coe 指向同一份 \texttt{inst\_ram.coe}。
-目标器件为 \texttt{xc7a200tfbg676-2}，仿真与综合工具为 Vivado 2025.1。
-工程在压缩包提供的 \texttt{mycpu.xpr} 上展开；\texttt{axi\_crossbar\_2x1} 置于 AXI 工程的 \texttt{rtl/xilinx\_ip}。
+环境来自 \texttt{lab10.zip}（类 SRAM）与 \texttt{lab11.zip}（AXI）。
+将实验 3 的 \texttt{func\_lab9} 复制到两边的 \texttt{soft/func\_lab9}，令 \texttt{inst\_ram}、\texttt{axi\_ram} 的 coe 指向同一 \texttt{inst\_ram.coe}。
+目标器件 \texttt{xc7a200tfbg676-2}，工具 Vivado 2025.1；在压缩包自带的 \texttt{mycpu.xpr} 上展开工程，\texttt{axi\_crossbar\_2x1} 放在 AXI 工程 \texttt{rtl/xilinx\_ip} 下。
 
-\texttt{golden\_trace.txt} 由 \texttt{cpu132\_gettrace} 在固定延迟下生成，与 \texttt{RANDOM\_SEED} 无关。
-类 SRAM 环境生成一次，AXI 环境复用该文件；功能仿真顶层均为 \texttt{tb\_top}。
+\texttt{golden\_trace.txt} 由 \texttt{cpu132\_gettrace} 在固定设置下生成，与随机种子无关。
+类 SRAM 环境生成一次，AXI 环境共用，仿真顶层均为 \texttt{tb\_top}。
+CPU 核心 RTL 在 \texttt{CPU\_CDE\_SRAM/.../rtl/myCPU}；AXI 工程复用 \texttt{mycpu\_core}，在 \texttt{mycpu\_top} 外挂双路 \texttt{sram2axi} 与 Crossbar。
 
-RTL 核心在 \texttt{CPU\_CDE\_SRAM/.../rtl/myCPU}。
-AXI 工程复用 \texttt{mycpu\_core}，\texttt{mycpu\_top} 中接双路 \texttt{sram2axi} 与 Crossbar。
-类 SRAM 侧按环境默认短延迟种子跑全量 \texttt{func\_lab9}。
-AXI 侧依次在固定、短、长三种种子下完成转接桥方案验证，再在固定延迟下用 Crossbar 复测。
-随后打开 \texttt{NATIVE\_AXI}，在同一固定延迟种子下把流水级直接接到 Crossbar，再跑一遍 \texttt{func\_lab9}。
-
-报告波形取自复位后 4500 个时钟周期：类 SRAM 为短延迟，AXI 为固定延迟。
-宏 \texttt{WAVE\_DUMP} 仅用于这两次短仿真，全量 94 点回归不打开该宏。
-时钟周期从 \texttt{resetn} 释放后的首个 CPU 时钟沿计起（第 1 个时钟周期约 2005\,ns，周期 10\,ns）。
+仿真顺序如下。
+类 SRAM 实验组在固定、短、长三种设置下各跑全量 \texttt{func\_lab9}，种子恢复为 \texttt{16'h01FF}。
+AXI 转接桥实验组三种设置依次验证后，在固定设置下用 Crossbar 复测。
+再打开 \texttt{NATIVE\_AXI}，三种设置各测一遍，种子恢复为 \texttt{16'h00FF}。
+波形图取自 4500 个时钟周期的短仿真（类 SRAM 用短设置、AXI 用固定设置），宏 \texttt{WAVE\_DUMP} 仅用于出图，94 点回归不打开。
+时钟编号从 \texttt{resetn} 释放后的首个 CPU 沿算起（周期 10\,ns，第 1 个沿约 2005\,ns）。
 
 \section{关键代码}
-以下摘录与上一节原理对应：握手状态机在 \texttt{IF\_stage} 与 \texttt{EXE\_stage}，
-转换与合并在 \texttt{sram2axi} 与 \texttt{mycpu\_top}。
-类 SRAM 顶层将 \texttt{hw\_int} 接 0；AXI 顶层接入 SoC 中断并在核外例化两份 \texttt{sram2axi} 与 Crossbar。
-取指与访存各自维护一条在途传输，互不共用。
+本节摘录与原理对应的状态机与连线。类 SRAM 握手在 \texttt{IF\_stage}、\texttt{EXE\_stage}；AXI 转换在 \texttt{sram2axi}，合并在 \texttt{mycpu\_top}。
+类 SRAM 顶层将 \texttt{hw\_int} 接 0；AXI 顶层接 SoC 中断，核外例化两份 \texttt{sram2axi} 与 Crossbar。取指与访存各有一条在途传输。
 
 \subsection{取指状态机}
 请求只在 \texttt{S\_REQ} 为高，地址用 \texttt{req\_pc}，写使能为 0，宽度固定为一个字。
@@ -448,7 +433,6 @@ CPU 的取指或访存状态机同时离开请求态，下一时钟周期 \textt
 \begin{verbatim}
 assign addr_ok = (st == A_IDLE) && req;
 assign data_ok = read_fire || b_fire;
-assign arlen   = 4'd0;
 assign arsize  = {1'b0, size_r};
 assign arburst = 2'b01;
 \end{verbatim}
@@ -470,12 +454,9 @@ CPU 把它锁存进 \texttt{fs\_inst} 或 \texttt{load\_buf}。
 .s_axi_araddr ({d_araddr, i_araddr}),
 .s_axi_arvalid({d_arvalid, i_arvalid}),
 .s_axi_arid   ({1'b0, d_arid, 1'b0, i_arid}),
-assign arlen = {4'b0, m_arlen};
-assign awlen = {4'b0, m_awlen};
 \end{verbatim}
 Crossbar 返回的 \texttt{rid}、\texttt{bid} 也是每路 4 位。
 转换器只接收低 3 位，而且状态机不看它们。
-主端口的 \texttt{arlen}、\texttt{awlen} 是 4 位，接到 CPU 顶层 8 位端口时高 4 位补 0。
 \texttt{arqos} 和 \texttt{awqos} 在从端口接 0。
 主端口的 QoS 不连接，因此不会送到 SoC。
 
@@ -485,44 +466,75 @@ S01 的仲裁优先级是 15，S00 是 0。
 Crossbar 给取指响应的 ID 带基址 0，给数据响应的 ID 带基址 8，再按这个 ID 把 R 或 B 送回原来的从端口。
 
 \section{实验结果}
-测试平台在每条写回有效且目标寄存器非 0 时，将 PC、寄存器号与写数据与 \texttt{golden\_trace.txt} 比对。
-94 个功能点全部一致时输出 \texttt{----PASS!!!}。
-参考 \texttt{gettrace} 在第 94 点止于 2130615\,ns，与实验 3 的功能轨迹一致。
+仿真在每条写回有效且目标寄存器非 0 时，把 PC、寄存器号和写数据与 \texttt{golden\_trace.txt} 比较；94 个功能点一致则打印 \texttt{----PASS!!!}。
+\texttt{gettrace} 在第 94 点止于 2130615\,ns，与实验 3 参考轨迹一致。
+下表汇总各方案的首次与末次测试点时间（墙钟时间，单位 ns）。
 
 \begin{center}
 \small
 \begin{tabular}{lrrl}
 \toprule
-配置 & 第 1 点 & 第 94 点 & 结果 \\
+方案 & 第 1 点 & 第 94 点 & 结果 \\
 \midrule
 gettrace & 14055\,ns & 2130615\,ns & 生成轨迹 \\
-类 SRAM，短延迟 & 96805\,ns & 13963675\,ns & 94/94 \\
-AXI 转接桥，固定 & 74285\,ns & 10881865\,ns & 94/94 \\
-AXI 转接桥，短延迟 & 119455\,ns & 17765195\,ns & 94/94 \\
-AXI 转接桥，长延迟 & 187165\,ns & 27821755\,ns & 94/94 \\
-AXI Crossbar，固定 & 110065\,ns & 15681855\,ns & 94/94 \\
-原生 AXI，固定 & 98075\,ns & 13969665\,ns & 94/94 \\
+类 SRAM，固定设置 & 38055\,ns & 5358945\,ns & 94/94 \\
+类 SRAM，短设置 & 96805\,ns & 13963675\,ns & 94/94 \\
+类 SRAM，长设置 & 183735\,ns & 26413855\,ns & 94/94 \\
+AXI 转接桥，固定设置 & 74285\,ns & 10881865\,ns & 94/94 \\
+AXI 转接桥，短设置 & 119455\,ns & 17765195\,ns & 94/94 \\
+AXI 转接桥，长设置 & 187165\,ns & 27821755\,ns & 94/94 \\
+AXI Crossbar，固定设置 & 110065\,ns & 15681855\,ns & 94/94 \\
+原生 AXI，固定设置 & 98075\,ns & 13969665\,ns & 94/94 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-固定延迟下，Crossbar 方案比转接桥晚 4799990\,ns 到达第 94 点，约 4.80\,ms。
-差额来自 Crossbar 的仲裁与寄存。短延迟和长延迟只在转接桥上各跑过一次，
-第 94 点分别为 17765195\,ns 与 27821755\,ns。
-Crossbar 的短延迟和长延迟没有单独再跑；固定延迟这一次已经是 94/94。
-原生 AXI 与 Crossbar 封装使用同一固定延迟种子。第 1 点在 98075\,ns，第 94 点在 13969665\,ns，同样是 94/94。
-相对封装加 Crossbar，第 94 点提前 1712190\,ns，约 1.71\,ms。
-提前的时间来自每次访问里 \texttt{sram2axi} 在 \texttt{addr\_ok} 与通道 \texttt{valid} 之间多延迟的一个时钟周期；Crossbar 和 RAM 的等待还在。
-上表每次运行的写回 PC 和寄存器都与 \texttt{golden\_trace.txt} 一致。
-时钟周期数变多不改变 trace 比较的写回结果，定时器相关测试仍落在原地循环及其延迟槽上。
+固定设置下，Crossbar 封装比单纯转接桥晚约 4.80\,ms 到第 94 点，差额在 Crossbar 的仲裁与寄存。
+原生 AXI 在同一设置下第 1 点 98075\,ns、第 94 点 13969665\,ns，亦为 94/94；相对 Crossbar 封装，第 94 点提前约 1.71\,ms，主要来自去掉 \texttt{sram2axi} 在 \texttt{addr\_ok} 与通道 \texttt{valid} 之间多出的一个时钟周期，Crossbar 与 RAM 侧的等待仍在。
 
-\subsection{通道时序}
-上表是整段 \texttt{func\_lab9} 的墙钟时间。下面第一张表是封装加 Crossbar。编号来自复位后 4500 个时钟周期的窗口，每个时钟周期 10\,ns，用来分开看封装和从设备各占多少个时钟周期。
-AXI 这一次是固定延迟，五位掩码保持为 1。类 SRAM 窗口是短延迟，只用来对照掩码，不拿来和 AXI 的时钟周期数相减。
+\subsection{随机延迟验证}
+类 SRAM、AXI 转接桥与原生 AXI 三个实验组各在固定、短、长三种设置下跑一遍 \texttt{func\_lab9}。
+三组使用同一套种子，只改低 16 位：\texttt{16'h00FF}、\texttt{16'h01FF}、\texttt{16'h0000}。
+跑完后类 SRAM 工程把种子恢复为 \texttt{16'h01FF}，AXI 工程恢复为 \texttt{16'h00FF}。
 
 \begin{center}
 \small
-\begin{tabular}{@{}llp{0.46\textwidth}@{}}
+\begin{tabular}{lllrrl}
+\toprule
+实验组 & 设置 & 种子低 16 位 & 第 1 点 & 第 94 点 & 结果 \\
+\midrule
+类 SRAM & 固定 & \texttt{16'h00FF} & 38055\,ns & 5358945\,ns & 94/94 \\
+类 SRAM & 短 & \texttt{16'h01FF} & 96805\,ns & 13963675\,ns & 94/94 \\
+类 SRAM & 长 & \texttt{16'h0000} & 183735\,ns & 26413855\,ns & 94/94 \\
+AXI 转接桥 & 固定 & \texttt{16'h00FF} & 74285\,ns & 10881865\,ns & 94/94 \\
+AXI 转接桥 & 短 & \texttt{16'h01FF} & 119455\,ns & 17765195\,ns & 94/94 \\
+AXI 转接桥 & 长 & \texttt{16'h0000} & 187165\,ns & 27821755\,ns & 94/94 \\
+原生 AXI & 固定 & \texttt{16'h00FF} & 98075\,ns & 13969665\,ns & 94/94 \\
+原生 AXI & 短 & \texttt{16'h01FF} & 143345\,ns & 20611615\,ns & 94/94 \\
+原生 AXI & 长 & \texttt{16'h0000} & 212825\,ns & 30516015\,ns & 94/94 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+同一实验组里，固定、短、长设置下第 94 点依次推后。
+掩码为 0 时，类 SRAM 的 \texttt{addr\_ok} 或 \texttt{data\_ok} 拉低，请求跨时钟周期保持；AXI 侧对应通道也要多等若干个时钟周期才能完成握手。
+固定设置掩码始终为 1，第 94 点最早；短设置仍有部分时钟周期掩码为 0；长设置这类时钟周期更多，第 94 点最晚。
+类 SRAM 组三种设置的第 94 点分别为 5358945\,ns、13963675\,ns、26413855\,ns，转接桥组与原生 AXI 组先后关系相同。
+
+九次运行写回 PC 与寄存器均与 \texttt{golden\_trace.txt} 一致，功能点为 94/94。
+随机延迟只推迟握手所在的时钟周期，不改变最终写回内容。
+定时器与软件中断依据 \texttt{mtc0} 写入的 Count、Compare 比较，多等出的时钟周期会把中断挪到循环 \texttt{b 1b} 或其延迟槽 \texttt{nop} 上另一次触发，EPC 仍指向该循环。
+
+\subsection{通道时序}
+上一小节的上表记录整段 \texttt{func\_lab9} 的墙钟时间。本小节只取复位后 4500 个时钟周期的波形窗口，每个时钟周期 10\,ns，从 \texttt{resetn} 释放后的首个 CPU 沿编号。
+AXI 波形在固定设置下采集，五位掩码保持为 1；类 SRAM 波形在短设置下采集，用来对照掩码，不与 AXI 的时钟周期数直接相减。
+
+\subsubsection{AXI 转接桥封装}
+\begin{table}[H]
+\centering
+\small
+\caption{转接桥路径上的主要握手时刻（固定设置）}
+\begin{tabular}{@{}p{0.34\textwidth}cp{0.48\textwidth}@{}}
 \toprule
 事件 & 时钟周期 & 观测 \\
 \midrule
@@ -537,19 +549,20 @@ B 握手 & 198 & 第 199 个时钟周期执行级进入 \texttt{D\_DONE} \\
 主端口 AR 与 AW 同时为 1 & 216、226 & \texttt{arid}=0，\texttt{awid}=8 \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-第 4 个时钟周期封装侧 CPU 已经认为取指被接受，第 5 个时钟周期转换器才把 \texttt{arvalid} 拉高。
-这是 \texttt{sram2axi} 多延迟的一个时钟周期。
-\texttt{arvalid} 从第 5 个时钟周期保持到第 7 个时钟周期才遇到 \texttt{arready}，读数据在第 13 个时钟周期才同时满足 \texttt{rvalid}、\texttt{rready} 和 \texttt{rlast}，第 14 个时钟周期进入 \texttt{S\_HAVE}。
+第 4 个时钟周期封装侧 CPU 已经认为取指被接受，第 5 个时钟周期转换器才把 \texttt{arvalid} 拉高，这是 \texttt{sram2axi} 多延迟的一个时钟周期。
+\texttt{arvalid} 保持到第 7 个时钟周期才遇到 \texttt{arready}；读数据在第 13 个时钟周期完成 R 握手，第 14 个时钟周期进入 \texttt{S\_HAVE}。
 从 \texttt{arready} 到 \texttt{rlast} 的等待花在 Crossbar 和 RAM 上。
 
-原生波形与上表使用同一复位条件：固定延迟，每个时钟周期 10\,ns，编号从 \texttt{resetn} 释放后的首个 CPU 时钟沿计起。
-原生采样在时钟沿后 1\,ns，下表编号已对齐到封装波形所记的同一沿。
+\subsubsection{原生 AXI}
+原生 CSV 在时钟沿后 1\,ns 采样，下表编号已与封装波形对齐到同一沿。
 
-\begin{center}
+\begin{table}[H]
+\centering
 \small
-\begin{tabular}{@{}llp{0.46\textwidth}@{}}
+\caption{原生 AXI 路径上的主要握手时刻（固定设置）}
+\begin{tabular}{@{}p{0.34\textwidth}cp{0.48\textwidth}@{}}
 \toprule
 事件 & 时钟周期 & 观测 \\
 \midrule
@@ -563,29 +576,25 @@ B 握手 & 177 & 第 178 个时钟周期执行级进入 \texttt{D\_DONE} \\
 主端口 AR 与 AW 同时为 1 & 192、202 & \texttt{arid}=0，\texttt{awid}=8 \\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
 原生 IF 在第 4 个时钟周期拉高 \texttt{arvalid}，主端口在第 6 个时钟周期完成地址握手。
-封装方案的主端口地址握手在第 7 个时钟周期，读数据握手在第 13 个时钟周期，\texttt{S\_HAVE} 在第 14 个时钟周期。
-两边从 \texttt{arready} 到 \texttt{rlast} 都是 6 个时钟周期，\texttt{fs\_inst} 少延迟一个时钟周期。
+封装路径上同一取指的主端口地址握手在第 7 个时钟周期、R 握手在第 13 个时钟周期、\texttt{S\_HAVE} 在第 14 个时钟周期。
+两边从 \texttt{arready} 到 \texttt{rlast} 都是 6 个时钟周期，原生路径的 \texttt{fs\_inst} 少延迟一个时钟周期。
 
-第一条 \texttt{sw} 在原生路径上于第 168 个时钟周期同时发出 AW 和 W，地址 \texttt{0xbfaff008}，数据 \texttt{0x2}。
-AW 在第 170 个时钟周期被接受，W 在第 172 个时钟周期被接受，B 在第 177 个时钟周期返回，第 178 个时钟周期进入 \texttt{D\_DONE}。
-封装方案同一条 \texttt{sw} 在第 189 个时钟周期发出，第 199 个时钟周期进入 \texttt{D\_DONE}。
-两条路径在这一条 store 上相差 21 个时钟周期：前面每次取指都少延迟一个时钟周期，差距是累积的。
+\subsubsection{对比与读写在主端口上的重叠}
+第一条 \texttt{sw} 在原生路径于第 168 个时钟周期发出 AW/W，第 178 个时钟周期进入 \texttt{D\_DONE}；封装路径于第 189 个时钟周期发出，第 199 个时钟周期进入 \texttt{D\_DONE}，相差 21 个时钟周期，来自前面每次取指少等的一个时钟周期。
 AW 被接受到 B 返回仍是 7 个时钟周期，从设备这段等待没有变短。
 
-第 192 个和第 202 个时钟周期，主端口上读、写同时有效。
-取指地址是 \texttt{0xbfc00704} 与 \texttt{0xbfc00708}。
-
-写地址是 \texttt{0xbfaff000}，数据 \texttt{0xffff}；另一笔是 \texttt{0xbfaff010}，数据 0。两笔的 ID 分别为 0 和 8。
-封装方案的主端口在第 216 个和第 226 个时钟周期也同时出现这两对事务。
-重叠出现在 Crossbar 的主端口上，响应仍按基址 ID 分开。
+第 192、202 个时钟周期（原生）与第 216、226 个时钟周期（封装）上，主端口读、写同时有效：取指地址 \texttt{0xbfc00704}、\texttt{0xbfc00708}，写地址 \texttt{0xbfaff000}（数据 \texttt{0xffff}）与 \texttt{0xbfaff010}（数据 0），\texttt{arid}=0、\texttt{awid}=8。
+重叠发生在 Crossbar 主端口，R/B 仍按基址 ID 回到取指或数据一侧。
 
 \section{仿真波形}
 本节六张图均来自 4500 个时钟周期的短仿真窗口，与全量回归的 94 点时间不同，但握手关系一致。
-类 SRAM 为短延迟种子（\texttt{16'h01FF}），取指口使用 \texttt{mask[1:0]} 分别作用于 \texttt{addr\_ok} 与 \texttt{data\_ok}。
-AXI 为固定延迟种子（\texttt{16'h00FF}），五位掩码恒为 1。
+
+类 SRAM 图在短设置下采样，种子低 16 位 \texttt{16'h01FF}，取指口用 \texttt{mask[1:0]} 分别作用于 \texttt{addr\_ok} 与 \texttt{data\_ok}。
+AXI 图在固定设置下采样，种子低 16 位 \texttt{16'h00FF}，五位掩码恒为 1。
+前两图对照类 SRAM 握手，后四图对照 AXI 通道。
 
 \subsection{取指请求保持到 addr\_ok}
 复位后前两个时钟周期取指停在 \texttt{S\_IDLE}。
@@ -596,7 +605,7 @@ AXI 为固定延迟种子（\texttt{16'h00FF}），五位掩码恒为 1。
 第 11 个时钟周期掩码为 \texttt{5'b00110}，bit 1 为 1，\texttt{addr\_ok} 变为 1，\texttt{sram\_wrap} 接受这次取指。
 第 12 个时钟周期进入 \texttt{S\_WAIT}，\texttt{req} 拉低。
 读数据线上已经是 \texttt{0x2408ffff}，bit 0 仍为 0，\texttt{data\_ok} 为 0。
-第 14 个时钟周期bit 0 变为 1，\texttt{data\_ok} 变为 1。
+第 14 个时钟周期 bit 0 变为 1，\texttt{data\_ok} 变为 1。
 第 15 个时钟周期进入 \texttt{S\_HAVE}，\texttt{fs\_pc} 为 \texttt{0xbfc00000}，\texttt{fs\_inst} 锁存 \texttt{0x2408ffff}，
 即 \texttt{li t0, -1}。
 
@@ -606,7 +615,7 @@ AXI 为固定延迟种子（\texttt{16'h00FF}），五位掩码恒为 1。
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{fig/sram_fetch.png}
-\caption{短延迟下首条取指：\texttt{req} 自第 4 个时钟周期保持至第 11 个时钟周期获得 \texttt{addr\_ok}，\texttt{data\_ok} 于第 14 个时钟周期。}
+\caption{短设置下首条取指：\texttt{req} 自第 4 个时钟周期保持至第 11 个时钟周期获得 \texttt{addr\_ok}，\texttt{data\_ok} 于第 14 个时钟周期。}
 \end{figure}
 
 \subsection{延迟槽}
@@ -642,10 +651,10 @@ bit 1 在第 27 个到第 32 个时钟周期为 0，第 33 个时钟周期 \text
 \end{figure}
 
 \subsection{AXI 读}
-固定延迟下掩码保持 \texttt{5'b11111}。
+固定设置下掩码保持 \texttt{5'b11111}。
 第 4 个时钟周期取指进入 \texttt{S\_REQ}，\texttt{req} 与 \texttt{addr\_ok} 同为 1。
 转换器仍在 \texttt{A\_IDLE}，\texttt{addr\_ok} 由 \texttt{req} 组合得到。
-第 5 个时钟周期CPU 进入 \texttt{S\_WAIT}，转换器进入 \texttt{A\_AR}，\texttt{arvalid} 为 1，\texttt{arready} 为 0。
+第 5 个时钟周期 CPU 进入 \texttt{S\_WAIT}，转换器进入 \texttt{A\_AR}，\texttt{arvalid} 为 1，\texttt{arready} 为 0。
 第 7 个时钟周期 \texttt{arready} 为 1，主端口 \texttt{arvalid} 为 1，\texttt{arid} 为 0。
 第 8 个时钟周期进入 \texttt{A\_R}，\texttt{rready} 为 1。
 第 12 个时钟周期 \texttt{rlast} 为 1，读数据线上已经是 \texttt{0x2408ffff}，\texttt{rvalid} 仍为 0。
@@ -687,39 +696,18 @@ bit 1 在第 27 个到第 32 个时钟周期为 0，第 33 个时钟周期 \text
 \caption{读、写重叠：第 216 个与第 226 个时钟周期主端口 AR、AW 同时有效（\texttt{arid}=0，\texttt{awid}=8）。}
 \end{figure}
 
-\section{实验收获}
-本实验在实验 3 的五级流水线上更换总线接口，用 \texttt{func\_lab9} 的写回 trace 检查功能。
-类 SRAM 顶层在短延迟下 94/94，第 94 点为 13963675\,ns。
-AXI 封装先走转接桥，固定、短、长三种种子均为 94/94，第 94 点分别是 10881865\,ns、17765195\,ns 和 27821755\,ns。
-换成 \texttt{axi\_crossbar\_2x1} 后，固定延迟下第 94 点为 15681855\,ns。
-取指级和执行级直接驱动通道、仍由同一颗 Crossbar 合并时，固定延迟下第 94 点为 13969665\,ns。
-实验箱未连接，这些结论都来自与 \texttt{golden\_trace.txt} 的比对。
+\section {实验收获}
+本实验复用实验 3 已经调试完成的五级流水线、CP0、异常与中断内核逻辑，核心工作不改动核内通路，而是对处理器对外总线接口进行改造，依托同一套 \texttt {func\_lab9} 写回 trace 作为功能参照，在总线架构迭代的过程中验证内核行为的稳定性。
 
-类 SRAM 上花费时间最多的是把一次访问拆成两次握手。
-\texttt{addr\_ok} 为 1 表示从设备已经收下地址，\texttt{req} 在下一时钟周期拉低。
-\texttt{req} 若继续为 1，\texttt{sram\_wrap} 会把同一次请求再接受一遍。
-\texttt{data\_ok} 至少再延迟一个时钟周期，并且只对应最近一次被接受的请求。
-取指和访存各自保留这一条在途传输。
-流水线清空时，尚未被接受的请求可以改地址或回到空闲；已经被接受的请求等到 \texttt{data\_ok}，返回的数据丢弃。
-分支也受这条约束。\texttt{br\_taken} 要等取指级 PC 等于本指令 PC 加 4 再更新目标，延迟槽才会先于分支目标出现在取指口上。
+任务一的工作是把顶层接口重构为类 SRAM 两段握手协议，单次访问拆分为 \texttt {addr\_ok} 和 \texttt {data\_ok} 两个阶段，同时约束取指、访存端口各自最多保留一笔在途传输。这一阶段的调试重心，是建立两段握手之间的绑定关系，保证地址握手和数据握手能够匹配到同一次请求。我采用的实现方式是：\texttt {addr\_ok} 拉高的下一拍就撤销 \texttt {req}，让 \texttt {sram\_wrap} 只接收一次地址握手；而 \texttt {data\_ok} 至少延后一拍，绑定最近一次已经被接收的请求。流水线清空场景是这里最容易出 bug 的地方：需要区分两类请求，还没有被接收的请求允许修改地址，已经完成地址握手的请求则必须等待 \texttt {data\_ok}，只是收到数据后直接丢弃。与之配套的分支约束也需要同步梳理，\texttt {br\_taken} 不能过早更新分支目标，要等到取指级 PC 和当前指令 PC+4 对齐之后再跳转，保证延迟槽指令会先于分支目标指令出现在取指口，这部分时序约束需要和握手逻辑一起对齐，很容易因为一拍偏差引发隐性错误。
 
-AXI 把同一次访问的地址、数据和响应分到五条通道，完成条件改为 \texttt{valid} 与 \texttt{ready} 同时为 1。
-\texttt{sram2axi} 把一次类 SRAM 访问收成一次长度为 0 的 INCR，并在 \texttt{addr\_ok} 与通道 \texttt{valid} 之间多延迟一个时钟周期。
-\texttt{arvalid}、\texttt{awvalid}、\texttt{wvalid} 保持到对应的 \texttt{ready}。
-异常清空时丢弃的是返回的 R 或 B，通道上这次事务仍然做完。
-取指和访存会同时发出事务，对外则只有一个主端口。
+任务二在核外新增 \texttt {sram2axi} 转接桥，把这套两段式握手封装成标准 AXI3 事务，再将独立的取指、访存两路请求合并成单一 AXI 主端口。转接桥本质上是协议转换层，要把简单的握手语义翻译成 AXI 的五条通道握手机制。这里需要遵守 AXI 的基本规则：\texttt {arvalid}、\texttt {awvalid}、\texttt {wvalid} 置高之后必须保持，直到从端给出对应的 ready。同时要处理流水线清空和 AXI 事务的冲突：一旦通道上事务已经发起，就不能中途打断，必须让事务完整走完，只在收到 R 读响应或者 B 写响应之后丢弃结果，而不是直接掐断事务。取指和访存有可能同时发出请求，我用基 ID 0 和 8 来标记事务来源，保证响应能够原路送回，实现读写通道并行工作。协议转换的一层封装，天然会引入固定的一拍延时，这也让我体会到不同总线抽象之间的代价：简洁的握手接口对内核友好，但向外映射到 AXI 时，时序开销会藏在桥接逻辑里。
 
-\texttt{axi\_crossbar\_2x1} 给两侧加上基址 ID 0 和 8，R、B 按 ID 回到原来的一侧，读通道和写通道可以同时有效。
-固定延迟窗口里，第 216 个和第 226 个时钟周期的主端口就是这种重叠。
-Crossbar 相对转接桥多出的 4799990\,ns 来自仲裁和寄存，写回 trace 与转接桥一致。
+任务三设计了对照路径，独立实现原生 AXI 通路作为对比基准：内核流水线直接驱动 AXI 五条通道，不再经过类 SRAM 握手与转接桥，对外维持相同的 AXI3 主端口。我通过修改 \texttt {RANDOM\_SEED} 低 16 位，在固定、短随机、长随机三种延迟配置下，依次跑通类 SRAM 直连、转接桥、原生 AXI 三组通路。随机延迟的作用是扰动握手发生的时钟位置，用来检验设计是不是只在特定时序下碰巧正确，而不是真正满足协议约束。调试过程中，我借助复位后前 4500 个时钟周期的波形，把转接桥带来的固定封装延时、从设备随机等待延时拆开分析，对比转接桥和原生 AXI 通路里 \texttt {arready} 到 \texttt {rlast} 的链路延时，理解协议转换带来的开销到底落在哪个环节。
 
-随机掩码只改变握手要等的时钟周期数。
-三种种子下写回的 PC 和寄存器一致，定时器与软件中断仍落在原地循环 \texttt{b 1b} 或其延迟槽 \texttt{nop} 上。
-整段仿真只给出到达测试点的时间。
-把封装延迟和从设备延迟分开，要看复位后 4500 个时钟周期的波形：首条取指在第 4 个时钟周期得到 \texttt{addr\_ok}，\texttt{arvalid} 到第 5 个时钟周期才拉高，而从 \texttt{arready} 到 \texttt{rlast} 两边都是 6 个时钟周期。
-去掉 \texttt{sram2axi} 的这一级延迟后，固定延迟的第 94 点从 15681855\,ns 提前到 13969665\,ns。
-从设备给出 \texttt{arready}、\texttt{rvalid} 或 \texttt{bvalid} 的等待还在。
-功能测试不检查中间停顿，换接口或换种子之后，写回与 \texttt{golden\_trace.txt} 一致即可通过。
+整个实验让我对分层接口思想有了更直观的感受：内核本身的流水线、异常、中断逻辑可以稳定不变，上层总线只是一层交换外壳。不管是两段式 SRAM 握手，还是 AXI 复杂通道，只要接口契约被严格遵守，内核的功能行为就可以保持一致。Count、Compare 寄存器依旧由 \texttt {mtc0} 配置，定时器与软件中断依然落在原地循环 \texttt {b 1b} 和它的延迟槽 \texttt {nop} 上，这也印证了总线属于外设交互层，不会侵入异常中断的内核机制。
+
+调试里最深刻的体会是，很多错误不是逻辑写错，而是对 “请求生命周期” 的边界处理不周：什么时候可以取消请求、什么时候事务必须跑完、清空流水线时哪些信号要保留、哪些结果要丢弃，这些边界场景在理想时序下很难暴露，只有引入随机延迟之后，才会把时序上的漏洞翻出来。同时对比转接桥和原生 AXI 两条实现路线，也让我看清两种工程取舍：桥接方案对内屏蔽复杂 AXI 细节，便于内核迭代；原生 AXI 通路减少协议转换开销，但会把 AXI 通道的时序负担直接压到流水线各级，两者各有适用场景。
 
 \section{附：源码目录}
 类 SRAM 的 CPU 在 \texttt{CPU\_CDE\_SRAM} 的 \texttt{myCPU} 目录。
